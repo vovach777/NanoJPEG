@@ -104,22 +104,153 @@
 // you may stop reading here                                                 //
 ///////////////////////////////////////////////////////////////////////////////
 
+NJ_FORCE_INLINE uint8_t njClip(const int x) {
+    return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t) x);
+}
+
+
+template <bool outclip=false,typename OT>
+inline void idct8( float s0, float s1, float s2, float s3, float s4, float s5, float s6, float s7,
+           OT& d0, OT& d1, OT& d2, OT& d3, OT& d4, OT& d5, OT& d6, OT& d7)
+{
+   /* Even part */
+
+    float tmp0 = s0;
+    float tmp1 = s2;
+    float tmp2 = s4;
+    float tmp3 = s6;
+
+    float tmp10 = tmp0 + tmp2;        /* phase 3 */
+    float tmp11 = tmp0 - tmp2;
+
+    float tmp13 = tmp1 + tmp3;        /* phases 5-3 */
+    float tmp12 = (tmp1 - tmp3) * float(1.414213562) - tmp13; /* 2*c4 */
+
+    tmp0 = tmp10 + tmp13;       /* phase 2 */
+    tmp3 = tmp10 - tmp13;
+    tmp1 = tmp11 + tmp12;
+    tmp2 = tmp11 - tmp12;
+
+    /* Odd part */
+
+    float tmp4 = s1;
+    float tmp5 = s3;
+    float tmp6 = s5;
+    float tmp7 = s7;
+
+    float z13 = tmp6 + tmp5;          /* phase 6 */
+    float z10 = tmp6 - tmp5;
+    float z11 = tmp4 + tmp7;
+    float z12 = tmp4 - tmp7;
+
+    tmp7 = z11 + z13;           /* phase 5 */
+    tmp11 = (z11 - z13) * float(1.414213562); /* 2*c4 */
+
+    float z5 = (z10 + z12) * float(1.847759065); /* 2*c2 */
+    tmp10 = z5 - z12 * float(1.082392200); /* 2*(c2-c6) */
+    tmp12 = z5 - z10 * float(2.613125930); /* 2*(c2+c6) */
+
+    tmp6 = tmp12 - tmp7;        /* phase 2 */
+    tmp5 = tmp11 - tmp6;
+    tmp4 = tmp10 - tmp5;
+    if constexpr (outclip) {
+        d0 = njClip(tmp0 + tmp7 + 128.5f);
+        d7 = njClip(tmp0 - tmp7 + 128.5f);
+        d1 = njClip(tmp1 + tmp6 + 128.5f);
+        d6 = njClip(tmp1 - tmp6 + 128.5f);
+        d2 = njClip(tmp2 + tmp5 + 128.5f);
+        d5 = njClip(tmp2 - tmp5 + 128.5f);
+        d3 = njClip(tmp3 + tmp4 + 128.5f);
+        d4 = njClip(tmp3 - tmp4 + 128.5f);
+    } else {
+        d0 = (tmp0 + tmp7);
+        d7 = (tmp0 - tmp7);
+        d1 = (tmp1 + tmp6);
+        d6 = (tmp1 - tmp6);
+        d2 = (tmp2 + tmp5);
+        d5 = (tmp2 - tmp5);
+        d3 = (tmp3 + tmp4);
+        d4 = (tmp3 - tmp4);
+    }
+}
+
+
+// inline float b1_b3 = float(1/std::cos(4*M_PI/16));
+// inline float b2 = float(1/std::cos(6*M_PI/16));
+// inline float b4 = float(1/std::cos(2*M_PI/16));
+// inline float b5 = float(1/( std::cos(2*M_PI/16) + std::cos(6*M_PI/16)  ));
+
+// void idct8(float s0, float s1, float s2, float s3, float s4, float s5, float s6, float s7,
+//            float& d0, float& d1, float& d2, float& d3, float& d4, float& d5, float& d6, float& d7)
+// {
+//         const float src4 = s5;
+//         const float src7 = s3;
+//         const float x4  = src4 - src7;
+//         const float x7  = src4 + src7;
+
+//         const float src5 = s1;
+//         const float src6 = s7;
+//         const float x5  = src5 + src6;
+//         const float x6  = src5 - src6;
+
+//         const float tmp1 = b5*(x4 - x6);
+//         const float stg26 = b4*(x6) - tmp1;
+
+//         const float x24 = tmp1 - b2*(x4);
+
+//         const float x15 = x5 - x7;
+//         const float x17 = x5 + x7;
+
+//         const float tmp2 = stg26 - x17;
+//         const float tmp3 =b1_b3*(x15) - tmp2;
+//         const float x44 = tmp3 + x24;
+
+//         const float src0 = s0;
+//         const float src1 = s4;
+//         const float x30 = src0 + src1;
+//         const float x31 = src0 - src1;
+
+//         const float src2 = s2;
+//         const float src3 = s6;
+//         const float x12 = src2 - src3;
+//         const float x13 = src2 + src3;
+
+//         const float x32 = b1_b3*(x12) - x13;
+
+//         const float x40 = x30 + x13;
+//         const float x43 = x30 - x13;
+//         const float x41 = x31 + x32;
+//         const float x42 = x31 - x32;
+
+//          d0 = x40 + x17;
+//          d1 = x41 + tmp2;
+//          d2 = x42 + tmp3;
+//          d3 = x43 - x44;
+//          d4 = x43 + x44;
+//          d5 = x42 - tmp3;
+//          d6 = x41 - tmp2;
+//          d7 = x40 - x17;
+// }
+
+
 
 struct NanoJpeg {
 
 struct nj_vlc_code_t {
-    unsigned char bits, code;
+    uint8_t bits, code;
 };
 
 struct nj_component_t {
-    int cid;
-    int ssx, ssy;
-    int width, height;
-    int stride;
-    int qtsel;
-    int actabsel, dctabsel;
-    int dcpred;
-    std::vector<unsigned char> pixels{};
+    int cid{};
+    int ssx{}, ssy{};
+    int width{}, height{};
+    int chroma_w_log2{};
+    int chroma_h_log2{};
+    int stride{};
+    int qtsel{};
+    int actabsel{}, dctabsel{};
+    int dcpred{};
+    std::vector<uint8_t> pixels{};
 };
 
 struct nj_context_t {
@@ -133,129 +264,50 @@ struct nj_context_t {
     int ncomp{};
     std::vector< nj_component_t> comp{};
     int qtused{}, qtavail{};
-    std::vector<std::vector<char>> qtab;
-    std::vector<std::vector< nj_vlc_code_t>> vlctab;
+    std::vector<std::vector<int>> qtab{
+    {128,  178,  178,  167,  246,  167,  151,  232,
+   232,  151,  128,  209,  219,  209,  128,  101,
+   178,  197,  197,  178,  101,   69,  139,  167,
+   177,  167,  139,   69,   35,   96,  131,  151,
+   151,  131,   96,   35,   49,   91,  118,  128,
+   118,   91,   49,   46,   81,  101,  101,   81,
+   46,   42,   69,   79,   69,   42,   35,   54,
+   54,   35,   28,   37,   28,   19,   19,   10},
+    {128,  178,  178,  167,  246,  167,  151,  232,
+   232,  151,  128,  209,  219,  209,  128,  101,
+   178,  197,  197,  178,  101,   69,  139,  167,
+   177,  167,  139,   69,   35,   96,  131,  151,
+   151,  131,   96,   35,   49,   91,  118,  128,
+   118,   91,   49,   46,   81,  101,  101,   81,
+   46,   42,   69,   79,   69,   42,   35,   54,
+   54,   35,   28,   37,   28,   19,   19,   10},
+    {128,  178,  178,  167,  246,  167,  151,  232,
+   232,  151,  128,  209,  219,  209,  128,  101,
+   178,  197,  197,  178,  101,   69,  139,  167,
+   177,  167,  139,   69,   35,   96,  131,  151,
+   151,  131,   96,   35,   49,   91,  118,  128,
+   118,   91,   49,   46,   81,  101,  101,   81,
+   46,   42,   69,   79,   69,   42,   35,   54,
+   54,   35,   28,   37,   28,   19,   19,   10},
+    {128,  178,  178,  167,  246,  167,  151,  232,
+   232,  151,  128,  209,  219,  209,  128,  101,
+   178,  197,  197,  178,  101,   69,  139,  167,
+   177,  167,  139,   69,   35,   96,  131,  151,
+   151,  131,   96,   35,   49,   91,  118,  128,
+   118,   91,   49,   46,   81,  101,  101,   81,
+   46,   42,   69,   79,   69,   42,   35,   54,
+   54,   35,   28,   37,   28,   19,   19,   10}};
+
+    std::vector<std::vector< nj_vlc_code_t>> vlctab = std::vector(4, std::vector(65536, nj_vlc_code_t{}));
     int buf{}, bufbits{};
-    int block[64]{};
     int rstinterval{};
-    nj_context_t() : vlctab(4, std::vector< nj_vlc_code_t>(65536)), qtab(4,std::vector<char>(64)) {}
+//    nj_context_t() : vlctab(4, std::vector< nj_vlc_code_t>(65536)), qtab(4,std::vector<char>(64)) {}
 };
     nj_context_t nj{};
 
 
 
-NJ_FORCE_INLINE unsigned char njClip(const int x) {
-    return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (unsigned char) x);
-}
 
-
-NJ_INLINE void njRowIDCT(int* blk) {
-constexpr int W1 = 2841;
-constexpr int W2 = 2676;
-constexpr int W3 = 2408;
-constexpr int W5 = 1609;
-constexpr int W6 = 1108;
-constexpr int W7 = 565;
-
-    int x0, x1, x2, x3, x4, x5, x6, x7, x8;
-    if (!((x1 = blk[4] << 11)
-        | (x2 = blk[6])
-        | (x3 = blk[2])
-        | (x4 = blk[1])
-        | (x5 = blk[7])
-        | (x6 = blk[5])
-        | (x7 = blk[3])))
-    {
-        blk[0] = blk[1] = blk[2] = blk[3] = blk[4] = blk[5] = blk[6] = blk[7] = blk[0] << 3;
-        return;
-    }
-    x0 = (blk[0] << 11) + 128;
-    x8 = W7 * (x4 + x5);
-    x4 = x8 + (W1 - W7) * x4;
-    x5 = x8 - (W1 + W7) * x5;
-    x8 = W3 * (x6 + x7);
-    x6 = x8 - (W3 - W5) * x6;
-    x7 = x8 - (W3 + W5) * x7;
-    x8 = x0 + x1;
-    x0 -= x1;
-    x1 = W6 * (x3 + x2);
-    x2 = x1 - (W2 + W6) * x2;
-    x3 = x1 + (W2 - W6) * x3;
-    x1 = x4 + x6;
-    x4 -= x6;
-    x6 = x5 + x7;
-    x5 -= x7;
-    x7 = x8 + x3;
-    x8 -= x3;
-    x3 = x0 + x2;
-    x0 -= x2;
-    x2 = (181 * (x4 + x5) + 128) >> 8;
-    x4 = (181 * (x4 - x5) + 128) >> 8;
-    blk[0] = (x7 + x1) >> 8;
-    blk[1] = (x3 + x2) >> 8;
-    blk[2] = (x0 + x4) >> 8;
-    blk[3] = (x8 + x6) >> 8;
-    blk[4] = (x8 - x6) >> 8;
-    blk[5] = (x0 - x4) >> 8;
-    blk[6] = (x3 - x2) >> 8;
-    blk[7] = (x7 - x1) >> 8;
-}
-
-NJ_INLINE void njColIDCT(const int* blk, unsigned char *out, int stride) {
-constexpr int W1 = 2841;
-constexpr int W2 = 2676;
-constexpr int W3 = 2408;
-constexpr int W5 = 1609;
-constexpr int W6 = 1108;
-constexpr int W7 = 565;
-
-    int x0, x1, x2, x3, x4, x5, x6, x7, x8;
-    if (!((x1 = blk[8*4] << 8)
-        | (x2 = blk[8*6])
-        | (x3 = blk[8*2])
-        | (x4 = blk[8*1])
-        | (x5 = blk[8*7])
-        | (x6 = blk[8*5])
-        | (x7 = blk[8*3])))
-    {
-        x1 = njClip(((blk[0] + 32) >> 6) + 128);
-        for (x0 = 8;  x0;  --x0) {
-            *out = (unsigned char) x1;
-            out += stride;
-        }
-        return;
-    }
-    x0 = (blk[0] << 8) + 8192;
-    x8 = W7 * (x4 + x5) + 4;
-    x4 = (x8 + (W1 - W7) * x4) >> 3;
-    x5 = (x8 - (W1 + W7) * x5) >> 3;
-    x8 = W3 * (x6 + x7) + 4;
-    x6 = (x8 - (W3 - W5) * x6) >> 3;
-    x7 = (x8 - (W3 + W5) * x7) >> 3;
-    x8 = x0 + x1;
-    x0 -= x1;
-    x1 = W6 * (x3 + x2) + 4;
-    x2 = (x1 - (W2 + W6) * x2) >> 3;
-    x3 = (x1 + (W2 - W6) * x3) >> 3;
-    x1 = x4 + x6;
-    x4 -= x6;
-    x6 = x5 + x7;
-    x5 -= x7;
-    x7 = x8 + x3;
-    x8 -= x3;
-    x3 = x0 + x2;
-    x0 -= x2;
-    x2 = (181 * (x4 + x5) + 128) >> 8;
-    x4 = (181 * (x4 - x5) + 128) >> 8;
-    *out = njClip(((x7 + x1) >> 14) + 128);  out += stride;
-    *out = njClip(((x3 + x2) >> 14) + 128);  out += stride;
-    *out = njClip(((x0 + x4) >> 14) + 128);  out += stride;
-    *out = njClip(((x8 + x6) >> 14) + 128);  out += stride;
-    *out = njClip(((x8 - x6) >> 14) + 128);  out += stride;
-    *out = njClip(((x0 - x4) >> 14) + 128);  out += stride;
-    *out = njClip(((x3 - x2) >> 14) + 128);  out += stride;
-    *out = njClip(((x7 - x1) >> 14) + 128);
-}
 
 template <typename STR>
 inline void njThrow(STR && e)  {
@@ -264,7 +316,7 @@ inline void njThrow(STR && e)  {
 #define njCheckError()
 
 NJ_INLINE int njShowBits(int bits) {
-    unsigned char newbyte;
+    uint8_t newbyte;
     if (!bits) return 0;
     while (nj.bufbits < bits) {
         if (nj.size <= 0) {
@@ -278,7 +330,7 @@ NJ_INLINE int njShowBits(int bits) {
         nj.buf = (nj.buf << 8) | newbyte;
         if (newbyte == 0xFF) {
             if (nj.size) {
-                unsigned char marker = *nj.pos++;
+                uint8_t marker = *nj.pos++;
                 nj.size--;
                 switch (marker) {
                     case 0x00:
@@ -323,7 +375,7 @@ NJ_INLINE void njSkip(int count) {
     if (nj.size < 0) njThrow(NJ_SYNTAX_ERROR);
 }
 
-NJ_INLINE unsigned short njDecode16(const unsigned char *pos) {
+NJ_INLINE unsigned short njDecode16(const uint8_t *pos) {
     return (pos[0] << 8) | pos[1];
 }
 
@@ -386,8 +438,20 @@ NJ_INLINE void njDecodeSOF(void) {
         c->height = (nj.height * c->ssy + ssymax - 1) / ssymax;
         c->stride = nj.mbwidth * c->ssx << 3;
         if (((c->width < 3) && (c->ssx != ssxmax)) || ((c->height < 3) && (c->ssy != ssymax))) njThrow(NJ_UNSUPPORTED);
-        //if (!(c->pixels = (unsigned char*) njAllocMem(c->stride * nj.mbheight * c->ssy << 3))) njThrow(NJ_OUT_OF_MEM);
+        //if (!(c->pixels = (uint8_t*) njAllocMem(c->stride * nj.mbheight * c->ssy << 3))) njThrow(NJ_OUT_OF_MEM);
         c->pixels.resize( c->stride * nj.mbheight * c->ssy << 3);
+        if (i > 0) {
+            int srcw=c->width,dstw=nj.comp[0].width,srch=c->height,dsth=nj.comp[0].height;
+            while ( srcw < dstw ) {
+                c->chroma_w_log2 += 1;
+                srcw <<= 1;
+            }
+            while ( srch < dsth ) {
+                c->chroma_h_log2 += 1;
+                srch <<= 1;
+            }
+
+        }
     }
     njSkip(nj.length);
 }
@@ -395,7 +459,7 @@ NJ_INLINE void njDecodeSOF(void) {
 NJ_INLINE void njDecodeDHT(void) {
     int codelen, currcnt, remain, spread, i, j;
     nj_vlc_code_t *vlc;
-    unsigned char counts[16];
+    uint8_t counts[16];
     njDecodeLength();
     njCheckError();
     while (nj.length >= 17) {
@@ -416,9 +480,9 @@ NJ_INLINE void njDecodeDHT(void) {
             remain -= currcnt << (16 - codelen);
             if (remain < 0) njThrow(NJ_SYNTAX_ERROR);
             for (i = 0;  i < currcnt;  ++i) {
-                unsigned char code = nj.pos[i];
+                uint8_t code = nj.pos[i];
                 for (j = spread;  j;  --j) {
-                    vlc->bits = (unsigned char) codelen;
+                    vlc->bits = (uint8_t) codelen;
                     vlc->code = code;
                     ++vlc;
                 }
@@ -435,16 +499,16 @@ NJ_INLINE void njDecodeDHT(void) {
 
 NJ_INLINE void njDecodeDQT(void) {
     int i;
-    unsigned char *t;
+    uint8_t *t;
     njDecodeLength();
     njCheckError();
     while (nj.length >= 65) {
         i = nj.pos[0];
         if (i & 0xFC) njThrow(NJ_SYNTAX_ERROR);
         nj.qtavail |= 1 << i;
-        t = (unsigned char*) &nj.qtab[i][0];
+        auto& t = nj.qtab[i];
         for (i = 0;  i < 64;  ++i)
-            t[i] = nj.pos[i + 1];
+            t[i] *= nj.pos[i + 1];
         njSkip(65);
     }
     if (nj.length) njThrow(NJ_SYNTAX_ERROR);
@@ -458,7 +522,7 @@ NJ_INLINE void njDecodeDRI(void) {
     njSkip(nj.length);
 }
 
-NJ_INLINE int njGetVLC(nj_vlc_code_t* vlc, unsigned char* code) {
+NJ_INLINE int njGetVLC(nj_vlc_code_t* vlc, uint8_t* code) {
     int value = njShowBits(16);
     int bits = vlc[value].bits;
     if (!bits) {
@@ -466,7 +530,7 @@ NJ_INLINE int njGetVLC(nj_vlc_code_t* vlc, unsigned char* code) {
          }
     njSkipBits(bits);
     value = vlc[value].code;
-    if (code) *code = (unsigned char) value;
+    if (code) *code = (uint8_t) value;
     bits = value & 15;
     if (!bits) return 0;
     value = njGetBits(bits);
@@ -475,33 +539,141 @@ NJ_INLINE int njGetVLC(nj_vlc_code_t* vlc, unsigned char* code) {
     return value;
 }
 
-NJ_INLINE void njDecodeBlock(nj_component_t* c, unsigned char* out) {
-    unsigned char code = 0;
+NJ_INLINE void njDecodeBlock(nj_component_t* c, uint8_t* out) {
+    uint8_t code = 0;
     int value, coef = 0;
-    std::fill(std::begin(nj.block),std::end(nj.block),0);
+    float block[64]{};
+    auto& qtab = nj.qtab[c->qtsel];
+
     c->dcpred += njGetVLC(&nj.vlctab[c->dctabsel][0], NULL);
-    nj.block[0] = (c->dcpred) * nj.qtab[c->qtsel][0];
-std::initializer_list<int> njZZ{ 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+auto ZZil = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63 };
 
-    auto njZZopt = std::begin(njZZ);
+    auto njZZopt = std::begin(ZZil);
+    bool allZiros = true;
+
+    block[0] = (c->dcpred) * qtab[0] * float(1./1024.); // DC component scaling and quantization
 
     do {
         value = njGetVLC(&nj.vlctab[c->actabsel][0], &code);
         if (!code) break;  // EOB
+        allZiros = false;
         if (!(code & 0x0F) && (code != 0xF0)) njThrow(NJ_SYNTAX_ERROR);
-        coef += (code >> 4) + 1;
+        coef += (code >> 4) + 1; //RLE jumps
         if (coef > 63) {
             njThrow(NJ_SYNTAX_ERROR);
         }
-        nj.block[ njZZopt[coef] ] = value * nj.qtab[c->qtsel][coef];
+        block[ njZZopt[coef] ] = value * qtab[coef] * float(1./1024.); // DCT coefficients scaling and quantization
     } while (coef < 63);
-    for (coef = 0;  coef < 64;  coef += 8)
-        njRowIDCT(&nj.block[coef]);
-    for (coef = 0;  coef < 8;  ++coef)
-        njColIDCT(&nj.block[coef], &out[coef], c->stride);
+    const int stride = c->stride;
+
+    if (!allZiros) {
+
+
+
+        // static const double aanscalefactor[8] = {
+        //     1.0, 1.387039845, 1.306562965, 1.175875602,
+        //     1.0, 0.785694958, 0.541196100, 0.275899379
+        // };
+
+        // int i = 0;
+        // for (int row = 0; row < 8; row++) {
+        //     for (int col = 0; col < 8; col++) {
+        //         block[i] *= float(aanscalefactor[row] * aanscalefactor[col] * 0.125);
+        //         i++;
+        //     }
+        // }
+
+    idct8(block[0] , block[1], block[2], block[3], block[4], block[5], block[6], block[7], block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7]);
+    idct8(block[8] , block[9], block[10], block[11], block[12], block[13], block[14], block[15], block[8], block[9], block[10], block[11], block[12], block[13], block[14], block[15]);
+    idct8(block[16], block[17], block[18], block[19], block[20], block[21], block[22], block[23], block[16], block[17], block[18], block[19], block[20], block[21], block[22], block[23]);
+    idct8(block[24], block[25], block[26], block[27], block[28], block[29], block[30], block[31], block[24], block[25], block[26], block[27], block[28], block[29], block[30], block[31]);
+    idct8(block[32], block[33], block[34], block[35], block[36], block[37], block[38], block[39], block[32], block[33], block[34], block[35], block[36], block[37], block[38], block[39]);
+    idct8(block[40], block[41], block[42], block[43], block[44], block[45], block[46], block[47], block[40], block[41], block[42], block[43], block[44], block[45], block[46], block[47]);
+    idct8(block[48], block[49], block[50], block[51], block[52], block[53], block[54], block[55], block[48], block[49], block[50], block[51], block[52], block[53], block[54], block[55]);
+    idct8(block[56], block[57], block[58], block[59], block[60], block[61], block[62], block[63], block[56], block[57], block[58], block[59], block[60], block[61], block[62], block[63]);
+
+    idct8(block[0], block[8], block[16], block[24], block[32], block[40], block[48], block[56], block[0], block[8], block[16], block[24], block[32], block[40], block[48], block[56]);
+    idct8(block[1], block[9], block[17], block[25], block[33], block[41], block[49], block[57], block[1], block[9], block[17], block[25], block[33], block[41], block[49], block[57]);
+    idct8(block[2], block[10], block[18], block[26], block[34], block[42], block[50], block[58], block[2], block[10], block[18], block[26], block[34], block[42], block[50], block[58]);
+    idct8(block[3], block[11], block[19], block[27], block[35], block[43], block[51], block[59], block[3], block[11], block[19], block[27], block[35], block[43], block[51], block[59]);
+    idct8(block[4], block[12], block[20], block[28], block[36], block[44], block[52], block[60], block[4], block[12], block[20], block[28], block[36], block[44], block[52], block[60]);
+    idct8(block[5], block[13], block[21], block[29], block[37], block[45], block[53], block[61], block[5], block[13], block[21], block[29], block[37], block[45], block[53], block[61]);
+    idct8(block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62], block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62]);
+    idct8(block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63], block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63]);
+
+
+
+
+
+
+        for (int i = 0; i < 64;) {
+
+            out[ i & 7 ] = njClip( block[i] + 128.5f );
+            i += 1;
+            if ((i & 7) == 0) out += stride; // next line
+
+        }
+
+    // idct8<true>(block[0], block[8], block[16], block[24], block[32], block[40], block[48], block[56],  out[0], out[0+stride], out[0+2*stride], out[0+3*stride], out[0+4*stride], out[0+5*stride], out[0+6*stride], out[0+7*stride]);
+    // idct8<true>(block[1], block[9], block[17], block[25], block[33], block[41], block[49], block[57],  out[1], out[1+stride], out[1+2*stride], out[1+3*stride], out[1+4*stride], out[1+5*stride], out[1+6*stride], out[1+7*stride]);
+    // idct8<true>(block[2], block[10], block[18], block[26], block[34], block[42], block[50], block[58], out[2], out[2+stride], out[2+2*stride], out[2+3*stride], out[2+4*stride], out[2+5*stride], out[2+6*stride], out[2+7*stride]);
+    // idct8<true>(block[3], block[11], block[19], block[27], block[35], block[43], block[51], block[59], out[3], out[3+stride], out[3+2*stride], out[3+3*stride], out[3+4*stride], out[3+5*stride], out[3+6*stride], out[3+7*stride]);
+    // idct8<true>(block[4], block[12], block[20], block[28], block[36], block[44], block[52], block[60], out[4], out[4+stride], out[4+2*stride], out[4+3*stride], out[4+4*stride], out[4+5*stride], out[4+6*stride], out[4+7*stride]);
+    // idct8<true>(block[5], block[13], block[21], block[29], block[37], block[45], block[53], block[61], out[5], out[5+stride], out[5+2*stride], out[5+3*stride], out[5+4*stride], out[5+5*stride], out[5+6*stride], out[5+7*stride]);
+    // idct8<true>(block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62], out[6], out[6+stride], out[6+2*stride], out[6+3*stride], out[6+4*stride], out[6+5*stride], out[6+6*stride], out[6+7*stride]);
+    // idct8<true>(block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63], out[7], out[7+stride], out[7+2*stride], out[7+3*stride], out[7+4*stride], out[7+5*stride], out[7+6*stride], out[7+7*stride]);
+
+
+
+    } else {
+        auto value = njClip(block[0] + 128.5f);
+        for (int i=0; i < 8;++i) {
+            std::fill(out, out+8, value );
+            out += stride; // next line
+        }
+    }
+
+
+
+    // idct8(block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7], block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7]);
+    // idct8(block[8], block[9], block[10], block[11], block[12], block[13], block[14], block[15], block[8], block[9], block[10], block[11], block[12], block[13], block[14], block[15]);
+    // idct8(block[16], block[17], block[18], block[19], block[20], block[21], block[22], block[23], block[16], block[17], block[18], block[19], block[20], block[21], block[22], block[23]);
+    // idct8(block[24], block[25], block[26], block[27], block[28], block[29], block[30], block[31], block[24], block[25], block[26], block[27], block[28], block[29], block[30], block[31]);
+    // idct8(block[32], block[33], block[34], block[35], block[36], block[37], block[38], block[39], block[32], block[33], block[34], block[35], block[36], block[37], block[38], block[39]);
+    // idct8(block[40], block[41], block[42], block[43], block[44], block[45], block[46], block[47], block[40], block[41], block[42], block[43], block[44], block[45], block[46], block[47]);
+    // idct8(block[48], block[49], block[50], block[51], block[52], block[53], block[54], block[55], block[48], block[49], block[50], block[51], block[52], block[53], block[54], block[55]);
+    // idct8(block[56], block[57], block[58], block[59], block[60], block[61], block[62], block[63], block[56], block[57], block[58], block[59], block[60], block[61], block[62], block[63]);
+
+    // idct8(block[0], block[8], block[16], block[24], block[32], block[40], block[48], block[56], block[0], block[8], block[16], block[24], block[32], block[40], block[48], block[56]);
+    // idct8(block[1], block[9], block[17], block[25], block[33], block[41], block[49], block[57], block[1], block[9], block[17], block[25], block[33], block[41], block[49], block[57]);
+    // idct8(block[2], block[10], block[18], block[26], block[34], block[42], block[50], block[58], block[2], block[10], block[18], block[26], block[34], block[42], block[50], block[58]);
+    // idct8(block[3], block[11], block[19], block[27], block[35], block[43], block[51], block[59], block[3], block[11], block[19], block[27], block[35], block[43], block[51], block[59]);
+    // idct8(block[4], block[12], block[20], block[28], block[36], block[44], block[52], block[60], block[4], block[12], block[20], block[28], block[36], block[44], block[52], block[60]);
+    // idct8(block[5], block[13], block[21], block[29], block[37], block[45], block[53], block[61], block[5], block[13], block[21], block[29], block[37], block[45], block[53], block[61]);
+    // idct8(block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62], block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62]);
+    // idct8(block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63], block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63]);
+
+
+
+    // for (int src = 0, dst=0; src < 64;  dst += stride, src += 8) {
+    //     out[dst+0] = njClip( block[src+0] / 4 + 128 );
+    //     out[dst+1] = njClip( block[src+1] / 4 + 128 );
+    //     out[dst+2] = njClip( block[src+2] / 4 + 128 );
+    //     out[dst+3] = njClip( block[src+3] / 4 + 128 );
+    //     out[dst+4] = njClip( block[src+4] / 4 + 128 );
+    //     out[dst+5] = njClip( block[src+5] / 4 + 128 );
+    //     out[dst+6] = njClip( block[src+6] / 4 + 128 );
+    //     out[dst+7] = njClip( block[src+7] / 4 + 128 );
+    // }
+
+
+    // for (coef = 0;  coef < 64;  coef += 8)
+    //     njRowIDCT(&block[coef]);
+    // for (coef = 0;  coef < 8;  ++coef)
+    //     njColIDCT(&block[coef], &out[coef], c->stride);
 }
 
 NJ_INLINE void njDecodeScan(void) {

@@ -31,9 +31,11 @@ constexpr inline void YCbCr_to_RGB(int y, int cb, int cr,  T& r_, T& g_, T& b_)
 }
 
 
-template <int planes_nb=3, int chroma_w_log2=1, int chroma_h_log2=1, typename YUV_, typename RGB_>
-inline void convert(YUV_ && yuv, RGB_ && rgb, int width, int height) {
+template <int planes_nb,typename YUV_, typename RGB_, typename COMP>
+inline void convert(YUV_ && yuv, RGB_ && rgb, COMP && comp) {
 
+    int width = comp[0].width;
+    int height = comp[0].height;
     for (int h=0; h < height; ++h)
     for (int x=0; x < width;  ++x)
     {
@@ -44,8 +46,8 @@ inline void convert(YUV_ && yuv, RGB_ && rgb, int width, int height) {
            rgb(x,h, std::clamp( yuv(0,x,h), 0,255), std::clamp( yuv(1,x,h), 0, 255));
         } else {
             auto y = yuv(0,x,h);
-            auto u = yuv(1,x >> chroma_w_log2, h >> chroma_h_log2);
-            auto v = yuv(2,x >> chroma_w_log2, h >> chroma_h_log2);
+            auto u = yuv(1,x >> comp[1].chroma_w_log2, h >> comp[1].chroma_h_log2);
+            auto v = yuv(2,x >> comp[2].chroma_w_log2, h >> comp[2].chroma_h_log2);
             int r,g,b;
             YCbCr_to_RGB(y,u,v, r,g,b);
             if constexpr (planes_nb == 4)
@@ -103,25 +105,33 @@ int main(int argc, char ** argv) {
     NanoJpeg decoder;
     StopWatch decode_time, convert_time;
 
+    int times{};
     decode_time.start();
-    decoder.njDecode(mmap.data(),mmap.size());
+    for (size_t bytes=0; bytes < 1024*1024*256; bytes += mmap.size(), times+=1 )
+    {
+        decoder.njDecode(mmap.data(),mmap.size());
+    }
     decode_time.stop();
-    std::cout << "image: " << decoder.njGetWidth() << "x" << decoder.njGetHeight() << std::endl;
-    std::cout << "decoding time = " << decode_time.elipsed_str() << std::endl;
+
+    std::cout << "image  = " << decoder.njGetWidth() << "x" << decoder.njGetHeight() << std::endl;
+    std::cout << "time   = " <<  std::fixed << std::setprecision(9) << (decode_time.elipsed() / times) << " seconds." << std::endl;
+    std::cout << "images = " <<  std::fixed << std::setprecision(3) << (times / decode_time.elipsed()) << " fps." << std::endl;
+    std::cout << "speed  = " << std::setprecision(2) <<  (times * mmap.size() / ( 1024.0 * 1024.0 ) / decode_time.elipsed() ) << " MB/s" << std::endl;
+    std::cout << "pixels = " << std::setprecision(2) <<  (decoder.njGetWidth() * decoder.njGetHeight() * double( times ) / (1024.0 * 1024.0) / decode_time.elipsed()) << " MPix/s" << std::endl;
     auto out_filename = std::string( argv[1] ) + ".bmp";
     auto& comp = decoder.njGetComponents();
     if (comp.size() == 3) {
         std::cout << "3 components" << std::endl;
         std::vector<uint8_t> rgb( comp[0].width * comp[0].height * 3);
         convert_time.start();
-         convert<3,0,0>([&comp](int comp_n, int x, int y ) {
-            return comp[comp_n].pixels[y*comp[comp_n].stride+x];
+         convert<3>([&comp](int comp_n, int x, int y ) {
+            return (int)comp[comp_n].pixels[y*comp[comp_n].stride+x];
          },[width=comp[0].width,&rgb](int x, int y, auto r, auto g, auto b){
             auto pos =   rgb.begin()  + (y * width + x)*3;
             *pos++ = r;
             *pos++ = g;
             *pos++ = b;
-         }, comp[0].width, comp[0].height);
+         }, comp);
          convert_time.stop();
          std::cout << "yuv to rgb time = " << convert_time.elipsed_str() << std::endl;
         stbi_write_bmp( out_filename.c_str(),decoder.njGetWidth(), decoder.njGetHeight(), 3, rgb.data() );
