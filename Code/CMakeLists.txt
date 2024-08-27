@@ -8,7 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 
-add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp cached_bitstream.hpp)
+add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
 
 
 add_compile_options(nanojpeg  -mtune=ivybridge  -mcpu=ivybridge)
