@@ -146,9 +146,13 @@ void jpeg_turbo_bench(const uint8_t * buf, size_t size ) {
      tjDestroy(handle);
      //turbo_time.stop();
      //return turbo_time.elipsed();
-
-
 }
+
+void nanojpeg_bench(const uint8_t * buf, size_t size ) {
+    NanoJpeg decoder;
+    decoder.njDecode(buf, size);
+}
+
 
 
 inline void print_stat(std::string title, double elipsed, double imgMPixSize, size_t size, int times)
@@ -170,10 +174,9 @@ int main(int argc, char ** argv) {
     {
         throw std::runtime_error(error.message());
     }
-    NanoJpeg decoder;
     StopWatch decode_time, convert_time;
 
-    int times = std::ceil( 1024*1024*256.0 / mmap.size() );
+    int times = std::ceil( 1024*1024*100.0 / mmap.size() );
 
     decode_time.start();
     for (int i = 0; i < times; i++)
@@ -183,16 +186,22 @@ int main(int argc, char ** argv) {
     decode_time.stop();
     auto turbo_elipsed = decode_time.elipsed();
 
+
     decode_time.start();
     for (int i = 0; i < times; i++)
     {
-            decoder.njDecode(mmap.data(),mmap.size());
+            nanojpeg_bench(mmap.data(),mmap.size());
     }
     decode_time.stop();
+
+
     auto elipsed = decode_time.elipsed();
+
+    NanoJpeg decoder;
+    decoder.njDecode(mmap.data(),mmap.size());
+
     auto imgMPixSize = decoder.njGetWidth() * decoder.njGetHeight() *  1e-6;
 
-    decoder.njDecode(mmap.data(),mmap.size());
 
     std::cout << "image  = " << decoder.njGetWidth() << "x" << decoder.njGetHeight() << " (" << std::fixed << std::setprecision(3) << imgMPixSize << " MPix)" << std::endl;
     print_stat("jpeg-turbo",turbo_elipsed,imgMPixSize,mmap.size(), times);

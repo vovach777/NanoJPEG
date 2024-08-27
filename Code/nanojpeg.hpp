@@ -593,7 +593,6 @@ struct HuffTree
     {
         throw std::domain_error(std::forward<STR>(e));
     }
-#define njCheckError()
 
     inline void njSkip(int count)
     {
@@ -630,7 +629,6 @@ struct HuffTree
     {
         int i, ssxmax = 0, ssymax = 0;
         njDecodeLength();
-        njCheckError();
         if (nj.length < 9)
             njThrow(NJ_SYNTAX_ERROR);
         if (nj.pos[0] != 8)
@@ -640,7 +638,6 @@ struct HuffTree
         if (!nj.width || !nj.height)
             njThrow(NJ_SYNTAX_ERROR);
         nj.ncomp = nj.pos[5];
-        nj.comp.resize(nj.ncomp);
         njSkip(6);
         switch (nj.ncomp)
         {
@@ -652,68 +649,72 @@ struct HuffTree
         }
         if (nj.length < (nj.ncomp * 3))
             njThrow(NJ_SYNTAX_ERROR);
-        for (i = 0; i < nj.ncomp; ++i)
+        nj.comp.resize(nj.ncomp);
+        for (auto & c: nj.comp)
         {
-            auto c = &nj.comp[i];
-            c->cid = nj.pos[0];
-            if (!(c->ssx = nj.pos[1] >> 4))
+            c.cid = nj.pos[0];
+            if (!(c.ssx = nj.pos[1] >> 4))
                 njThrow(NJ_SYNTAX_ERROR);
-            if (c->ssx & (c->ssx - 1))
+            if (c.ssx & (c.ssx - 1))
                 njThrow(NJ_UNSUPPORTED); // non-power of two
-            if (!(c->ssy = nj.pos[1] & 15))
+            if (!(c.ssy = nj.pos[1] & 15))
                 njThrow(NJ_SYNTAX_ERROR);
-            if (c->ssy & (c->ssy - 1))
+            if (c.ssy & (c.ssy - 1))
                 njThrow(NJ_UNSUPPORTED); // non-power of two
-            if ((c->qtsel = nj.pos[2]) & 0xFC)
+            if ((c.qtsel = nj.pos[2]) & 0xFC)
                 njThrow(NJ_SYNTAX_ERROR);
             njSkip(3);
-            nj.qtused |= 1 << c->qtsel;
-            if (c->ssx > ssxmax)
-                ssxmax = c->ssx;
-            if (c->ssy > ssymax)
-                ssymax = c->ssy;
+            nj.qtused |= 1 << c.qtsel;
+            if (c.ssx > ssxmax)
+                ssxmax = c.ssx;
+            if (c.ssy > ssymax)
+                ssymax = c.ssy;
         }
         if (nj.ncomp == 1)
         {
-            auto c = &nj.comp[0];
-            c->ssx = c->ssy = ssxmax = ssymax = 1;
+            nj.comp[0].ssx = nj.comp[0].ssy = ssxmax = ssymax = 1;
         }
         nj.mbsizex = ssxmax << 3;
         nj.mbsizey = ssymax << 3;
         nj.mbwidth = (nj.width + nj.mbsizex - 1) / nj.mbsizex;
         nj.mbheight = (nj.height + nj.mbsizey - 1) / nj.mbsizey;
-        for (i = 0; i < nj.ncomp; ++i)
+
+        for (auto &c : nj.comp)
         {
-            auto c = &nj.comp[i];
-            c->width = (nj.width * c->ssx + ssxmax - 1) / ssxmax;
-            c->height = (nj.height * c->ssy + ssymax - 1) / ssymax;
-            c->stride = nj.mbwidth * c->ssx << 3;
-            if (((c->width < 3) && (c->ssx != ssxmax)) || ((c->height < 3) && (c->ssy != ssymax)))
+
+            c.width = (nj.width * c.ssx + ssxmax - 1) / ssxmax;
+            c.height = (nj.height * c.ssy + ssymax - 1) / ssymax;
+            c.stride = nj.mbwidth * c.ssx << 3;
+            if (((c.width < 3) && (c.ssx != ssxmax)) || ((c.height < 3) && (c.ssy != ssymax)))
                 njThrow(NJ_UNSUPPORTED);
-            c->pixels.resize(c->stride * nj.mbheight * c->ssy << 3, 128);
-            if (i > 0)
+            c.pixels.resize(c.stride * nj.mbheight * c.ssy << 3);
+        }
+        int dstw = nj.comp[0].width;
+        int dsth = nj.comp[0].height;
+
+        for (int i=1; i < nj.ncomp; ++i)
+        {
+            auto& c=nj.comp[i];
+            int srcw = c.width;
+            int srch = c.height;
+            while (srcw < dstw)
             {
-                int srcw = c->width, dstw = nj.comp[0].width, srch = c->height, dsth = nj.comp[0].height;
-                while (srcw < dstw)
-                {
-                    c->chroma_w_log2 += 1;
-                    srcw <<= 1;
-                }
-                while (srch < dsth)
-                {
-                    c->chroma_h_log2 += 1;
-                    srch <<= 1;
-                }
+                c.chroma_w_log2 += 1;
+                srcw <<= 1;
+            }
+            while (srch < dsth)
+            {
+                c.chroma_h_log2 += 1;
+                srch <<= 1;
             }
         }
+
         njSkip(nj.length);
     }
 
     inline void njDecodeDHT(void)
     {
-        uint8_t counts[16];
         njDecodeLength();
-        njCheckError();
         while (nj.length >= 17)
         {
             int i = nj.pos[0];
@@ -730,19 +731,16 @@ struct HuffTree
 
     inline void njDecodeDQT(void)
     {
-        int i;
-        uint8_t *t;
         njDecodeLength();
-        njCheckError();
         while (nj.length >= 65)
         {
-            i = nj.pos[0];
+            int i = nj.pos[0];
             if (i & 0xFC)
                 njThrow(NJ_SYNTAX_ERROR);
             nj.qtavail |= 1 << i;
-            auto &t = nj.qtab[i];
-            for (i = 0; i < 64; ++i)
-                t[i] *= nj.pos[i + 1];
+            auto p = nj.pos + 1;
+            for (auto &t : nj.qtab[i])
+                t *= *p++;
             njSkip(65);
         }
         if (nj.length)
@@ -752,7 +750,6 @@ struct HuffTree
     inline void njDecodeDRI(void)
     {
         njDecodeLength();
-        njCheckError();
         if (nj.length < 2)
             njThrow(NJ_SYNTAX_ERROR);
         nj.rstinterval = njDecode16(nj.pos);
@@ -774,18 +771,18 @@ struct HuffTree
         return value;
     }
 
-    inline void njDecodeBlock(nj_component_t *c, uint8_t *out)
+    inline void njDecodeBlock(nj_component_t &c, int offset)
     {
         uint8_t code = 0;
-        int value, coef = 0;
+        uint8_t * out = c.pixels.data() + offset;
         float block[64]{};
-        auto &qtab = nj.qtab[c->qtsel];
-        auto &dc = nj.hufftab[c->dctabsel];
-        auto &ac = nj.hufftab[c->actabsel];
+        auto &qtab = nj.qtab[c.qtsel];
+        auto &dc = nj.hufftab[c.dctabsel];
+        auto &ac = nj.hufftab[c.actabsel];
 
         // DC coef
         int dcval = njGetVLC(dc, NULL);
-        c->dcpred += dcval;
+        c.dcpred += dcval;
 
         // c->dcpred += huffman_decode_dc(dc);
         auto ZZil = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
@@ -796,11 +793,12 @@ struct HuffTree
         auto njZZopt = std::begin(ZZil);
         bool allZiros = true;
 
-        block[0] = (c->dcpred) * qtab[0] * float(1. / 1024.); // DC component scaling and quantization
+        block[0] = (c.dcpred) * qtab[0] * float(1. / 1024.); // DC component scaling and quantization
 
+        int coef = 0;
         do
         {
-            value = njGetVLC(ac, &code);
+            int value = njGetVLC(ac, &code);
             if (!code)
                 break; // EOB
             allZiros = false;
@@ -813,7 +811,7 @@ struct HuffTree
             }
             block[njZZopt[coef]] = value * qtab[coef] * float(1. / 1024.); // DCT coefficients scaling and quantization
         } while (coef < 63);
-        const int stride = c->stride;
+        const int stride = c.stride;
 
         if (!allZiros)
         {
@@ -861,23 +859,22 @@ struct HuffTree
         int mbx, mby, sbx, sby;
         int rstcount = nj.rstinterval, nextrst = 0;
         njDecodeLength();
-        njCheckError();
         if (nj.length < (4 + 2 * nj.ncomp))
             njThrow(NJ_SYNTAX_ERROR);
         if (nj.pos[0] != nj.ncomp)
             njThrow(NJ_UNSUPPORTED);
         njSkip(1);
-        for (int i = 0; i < nj.ncomp; ++i)
+        for (auto & c : nj.comp)
         {
-            auto c = &nj.comp[i];
-            if (nj.pos[0] != c->cid)
+            if (nj.pos[0] != c.cid)
                 njThrow(NJ_SYNTAX_ERROR);
             if (nj.pos[1] & 0xEE)
                 njThrow(NJ_SYNTAX_ERROR);
-            c->dctabsel = nj.pos[1] >> 4;
-            c->actabsel = (nj.pos[1] & 1) | 2;
+            c.dctabsel = nj.pos[1] >> 4;
+            c.actabsel = (nj.pos[1] & 1) | 2;
             njSkip(2);
         }
+
         if (nj.pos[0] || (nj.pos[1] != 63) || nj.pos[2])
             njThrow(NJ_UNSUPPORTED);
         njSkip(nj.length);
@@ -886,14 +883,12 @@ struct HuffTree
 
         for (mbx = mby = 0;;)
         {
-            for (int i = 0; i < nj.ncomp; ++i)
+            for (auto & c : nj.comp)
             {
-                auto c = &nj.comp[i];
-                for (sby = 0; sby < c->ssy; ++sby)
-                    for (sbx = 0; sbx < c->ssx; ++sbx)
+                for (sby = 0; sby < c.ssy; ++sby)
+                    for (sbx = 0; sbx < c.ssx; ++sbx)
                     {
-                        njDecodeBlock(c, &c->pixels[((mby * c->ssy + sby) * c->stride + mbx * c->ssx + sbx) << 3]);
-                        njCheckError();
+                        njDecodeBlock(c, ((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3);
                     }
             }
 
@@ -908,9 +903,12 @@ struct HuffTree
                 nj.bitstream.bits_priv_refill_32_be();
                 if (nj.bitstream.ptr != nj.bitstream.buffer_end)
                     njThrow(NJ_SYNTAX_ERROR);
-                nj.pos = nj.bitstream.ptr + 2;
-                nj.size -= nj.pos - prev_pos;
-                prev_pos = nj.pos;
+                size_t size = nj.bitstream.ptr + 2  - nj.pos; // 2 bytes for RST marker
+                nj.pos += size; // skip RST marker
+                nj.size -= size; // skip RST marker
+                // nj.pos = nj.bitstream.ptr + 2;
+                // nj.size -= nj.pos - prev_pos;
+                // prev_pos = nj.pos;
                 if (nj.size < 0)
                     njThrow(NJ_SYNTAX_ERROR);
                 int code = njDecode16(nj.bitstream.ptr);
@@ -923,14 +921,16 @@ struct HuffTree
                     njThrow(NJ_SYNTAX_ERROR);
                 nextrst = (nextrst + 1) & 7;
                 rstcount = nj.rstinterval;
-                for (int i = 0; i < 3; ++i)
-                    nj.comp[i].dcpred = 0;
+                for (auto & c : nj.comp) c.dcpred = 0; // reset DC prediction to 0
             }
             // if (bitstream.ptr == bitstream.buffer_end && (bitstream.bits_valid==0)) {
             //     if( njDecode16(bitstream.ptr) != 0xFFD9) njThrow(NJ_SYNTAX_ERROR);
             //     return;
             // }
         }
+        size_t size = nj.bitstream.ptr - nj.pos; // 2 bytes for RST marker
+        nj.pos += size; // skip RST marker
+        nj.size -= size; // skip RST marker
     }
 
     void njDecode(const uint8_t *jpeg, const int size)
@@ -950,7 +950,6 @@ struct HuffTree
             if ((nj.size < 2) || (nj.pos[0] != 0xFF))
             {
                 njThrow(NJ_SYNTAX_ERROR);
-                // return;
             }
             njSkip(2);
             switch (nj.pos[-1])
@@ -971,8 +970,9 @@ struct HuffTree
                 break;
             case 0xDA:
                 njDecodeScan();
+                //if ( njDecode16(nj.pos) != 0xFFD9) njThrow(NJ_SYNTAX_ERROR);
+                //std::cout << std::hex << njDecode16(nj.pos) << std::endl; // 0xFFD9
                 return;
-                break;
             case 0xFE:
                 njSkipMarker();
                 break;
