@@ -5,6 +5,7 @@
 #include <algorithm>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include "turbojpeg.h"
 
 #ifndef stbi__float2fixed
 #define stbi__float2fixed(x)  (((int) ((x) * 4096.0f + 0.5f)) << 8)
@@ -93,6 +94,73 @@ struct StopWatch {
 }
 using profiling::StopWatch;
 
+
+     struct comp {
+        std::vector<uint8_t> data{};
+        int chroma_h_log2{}, chroma_w_log2{};
+        void setup(int subsamp, int comp) {
+            switch (comp) {
+                    case 0: chroma_h_log2 = 0; chroma_w_log2 = 0; break;
+                    case 1:
+                    case 2:
+                        switch (subsamp) {
+                            case TJSAMP_444: chroma_h_log2 = 0; chroma_w_log2 = 0; break;
+                            case TJSAMP_420: chroma_h_log2 = 1; chroma_w_log2 = 1; break;
+                            case TJSAMP_422: chroma_h_log2 = 0; chroma_w_log2 = 1; break;
+                        }
+            }
+
+
+        }
+     };
+
+
+void jpeg_turbo_bench(const uint8_t * buf, size_t size ) {
+
+    //StopWatch turbo_time{};
+    //turbo_time.start();
+     auto handle = tjInitDecompress();
+     int width, height, jpegSubsamp, jpegColorspace;
+     tjDecompressHeader3(handle, buf, size, &width, &height, &jpegSubsamp, &jpegColorspace);
+     //tjPlaneSizeYUV(0, width,0, height, jpegSubsamp);
+     comp comps[3]{};
+
+     comps[0].data.resize( tjPlaneSizeYUV(0, width,0, height, jpegSubsamp ) );
+     comps[0].setup(jpegSubsamp, 0);
+
+     comps[1].data.resize( tjPlaneSizeYUV(1, width,0, height, jpegSubsamp ) );
+     comps[1].setup(jpegSubsamp, 1);
+
+     comps[2].data.resize( tjPlaneSizeYUV(2, width,0, height, jpegSubsamp ) );
+     comps[2].setup(jpegSubsamp, 2);
+
+     uint8_t * yuv_planes[3] = { comps[0].data.data(), comps[1].data.data(), comps[2].data.data() };
+     int succ = tjDecompressToYUVPlanes(handle, buf, size, (uint8_t **) yuv_planes, 0, nullptr, 0, 0);
+
+     if (succ != 0)
+     {
+        auto err = std::string(tjGetErrorStr2(handle));
+        tjDestroy(handle);
+        throw std::runtime_error(err);
+     }
+     tjDestroy(handle);
+     //turbo_time.stop();
+     //return turbo_time.elipsed();
+
+
+}
+
+
+inline void print_stat(std::string title, double elipsed, double imgMPixSize, size_t size, int times)
+{
+    std::cout << "** " << title << "  **" << std::endl;
+    std::cout << "time   = " << std::fixed << std::setprecision(9) << (elipsed/ times) << " seconds" << std::endl;
+    std::cout << "images = " << std::fixed << std::setprecision(3) << (times / elipsed) << " fps" << std::endl;
+    std::cout << "bytes  = " << std::fixed << std::setprecision(2) <<  (times * size / ( 1024.0 * 1024.0 ) / elipsed ) << " MB/s" << std::endl;
+    std::cout << "pixels = " << std::fixed << std::setprecision(2) <<  (imgMPixSize * double( times ) / elipsed) << " MPix/s" << std::endl;
+    std::cout << std::endl;
+}
+
 int main(int argc, char ** argv) {
 
  try {
@@ -105,19 +173,32 @@ int main(int argc, char ** argv) {
     NanoJpeg decoder;
     StopWatch decode_time, convert_time;
 
-    int times{};
+    int times = std::ceil( 1024*1024*256.0 / mmap.size() );
+
     decode_time.start();
-    for (size_t bytes=0; bytes < 1024*1024*256; bytes += mmap.size(), times+=1 )
+    for (int i = 0; i < times; i++)
     {
-        decoder.njDecode(mmap.data(),mmap.size());
+        jpeg_turbo_bench(mmap.data(),mmap.size());
     }
     decode_time.stop();
+    auto turbo_elipsed = decode_time.elipsed();
 
-    std::cout << "image  = " << decoder.njGetWidth() << "x" << decoder.njGetHeight() << std::endl;
-    std::cout << "time   = " <<  std::fixed << std::setprecision(9) << (decode_time.elipsed() / times) << " seconds." << std::endl;
-    std::cout << "images = " <<  std::fixed << std::setprecision(3) << (times / decode_time.elipsed()) << " fps." << std::endl;
-    std::cout << "speed  = " << std::setprecision(2) <<  (times * mmap.size() / ( 1024.0 * 1024.0 ) / decode_time.elipsed() ) << " MB/s" << std::endl;
-    std::cout << "pixels = " << std::setprecision(2) <<  (decoder.njGetWidth() * decoder.njGetHeight() * double( times ) / (1024.0 * 1024.0) / decode_time.elipsed()) << " MPix/s" << std::endl;
+    decode_time.start();
+    for (int i = 0; i < times; i++)
+    {
+            decoder.njDecode(mmap.data(),mmap.size());
+    }
+    decode_time.stop();
+    auto elipsed = decode_time.elipsed();
+    auto imgMPixSize = decoder.njGetWidth() * decoder.njGetHeight() *  1e-6;
+
+    decoder.njDecode(mmap.data(),mmap.size());
+
+    std::cout << "image  = " << decoder.njGetWidth() << "x" << decoder.njGetHeight() << " (" << std::fixed << std::setprecision(3) << imgMPixSize << " MPix)" << std::endl;
+    print_stat("jpeg-turbo",turbo_elipsed,imgMPixSize,mmap.size(), times);
+    print_stat("nanojpeg",elipsed,imgMPixSize,mmap.size(), times);
+    std::cout << "ratio = " << std::fixed << std::setprecision(2) << (turbo_elipsed / elipsed) << "x" << std::endl;
+
     auto out_filename = std::string( argv[1] ) + ".bmp";
     auto& comp = decoder.njGetComponents();
     if (comp.size() == 3) {
