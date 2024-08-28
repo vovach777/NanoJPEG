@@ -34,13 +34,19 @@
 #include <cassert>
 #include <algorithm>
 #include <limits>
-
+#include <future>
 
 #define NJ_NO_JPEG "NJ_NO_JPEG"           // not a JPEG file
 #define NJ_UNSUPPORTED "NJ_UNSUPPORTED"   // unsupported format
 #define NJ_OUT_OF_MEM "NJ_OUT_OF_MEM"     // out of memory
 #define NJ_INTERNAL_ERR "NJ_INTERNAL_ERR" // internal error
 #define NJ_SYNTAX_ERROR "NJ_SYNTAX_ERROR" // syntax error
+
+template <typename STR>
+    inline void njThrow(STR &&e)
+    {
+        throw std::domain_error(std::forward<STR>(e));
+    }
 
 // njInit: Initialize NanoJPEG.
 // For safety reasons, this should be called at least one time before using
@@ -445,7 +451,7 @@ inline void bits_skip_be(unsigned int n)
 
 struct HuffTree
 {
-
+#if 0
     struct HuffNode
     {
         uint16_t left{}, right{};
@@ -456,6 +462,8 @@ struct HuffTree
 
     inline int parse(const uint8_t *dht)
     {
+        // parse_thread(dht);
+        // fast_future = std::async(std::launch::async, [this](const uint8_t* dht) { parse_thread(dht); }, dht).share();
         const uint8_t *pCount = dht;
         const uint8_t *pSymbol = dht + 16;
         poollist.resize(64);
@@ -469,6 +477,10 @@ struct HuffTree
             for (int i = 0; i < count; i++)
             {
                 int iSymbol = *pSymbol++;
+                if (iSymbol == 0x0f)
+                {
+                    njThrow(NJ_UNSUPPORTED);
+                }
                 int iCode = iCurrentCode++;
                 insert(iCode, bitLen, iSymbol);
             }
@@ -476,6 +488,7 @@ struct HuffTree
         }
         poollist.resize(freeIndex);
         assert(poollist.size() < UINT16_MAX);
+
         return ret_count;
     }
     inline void insert(int code, int len, int symbol)
@@ -509,16 +522,132 @@ struct HuffTree
         assert(poollist[node].right == 0); // must be a leaf node
         poollist[node].symbol = (uint8_t)symbol;
     }
-    template <typename GetBit>
-    inline int find(GetBit &&getbit) const
+
+#else
+    std::vector< uint8_t > fast_access = std::vector< uint8_t >(0x10000,0x0f);
+    std::vector< uint8_t > fast_bits = std::vector< uint8_t >(256,0);
+    //int  eob_position_in_fast_access{0};
+    //std::atomic<bool> fast_ready{false};
+    //std::shared_future<void> fast_future;
+    const uint8_t *dht{nullptr};
+
+    int  parse()
     {
-        int node = 0;
-        do
-        {
-            node = (getbit() == 0) ? poollist[node].left : poollist[node].right;
-        } while (poollist[node].right || poollist[node].left);
-        return poollist[node].symbol;
+        assert( dht != nullptr );
+        const uint8_t *pCount = dht;
+        const uint8_t *pSymbol = dht + 16;
+        int remain{65536}, spread{65536};
+
+        uint8_t* vlc = fast_access.data();
+        uint8_t* vlc_end = vlc + fast_access.size();
+        int symbols_count = 0;
+
+        for (int codelen = 1;  codelen <= 16;  ++codelen) {
+            spread >>= 1;
+            int currcnt = *pCount++;
+            if (!currcnt) continue;
+            symbols_count+=currcnt;
+            remain -= currcnt << (16 - codelen);
+
+            for (int i = 0;  i < currcnt;  ++i) {
+                auto code = *pSymbol++;
+                fast_bits[code] = (uint8_t)codelen;
+                for (int j = spread;  j;  --j)
+                {
+                    assert( vlc != vlc_end);
+                    *vlc++ = code;
+
+
+                }
+            }
+        }
+        return symbols_count;
     }
+    std::shared_future<void> delayed{};
+    void parse_async() {
+        fast_ready = false;
+        delayed = std::async(std::launch::async, [this]() { parse(); }).share();
+    }
+#endif
+
+    int find_slow(BitstreamContextBE &br) const
+    {
+        int peek = br.bits_peek_nz_be(16);
+        const uint8_t* symbols = dht+16;
+        const uint8_t* counts = dht;
+        int huffman_code = 0;
+        for (int bitlen = 1; bitlen <= 16; ++bitlen)
+        {
+            int count = *counts++;
+            if (count > 0) {
+                const int peekcode = peek >> (16 - bitlen);
+                for (int i = 0; i < count; ++i) {
+                    int symbol = *symbols++;
+                    int code   = huffman_code++;
+                    if ( peekcode == code) {
+                        br.bits_skip_be(bitlen);
+                        return symbol;
+                    }
+                }
+            }
+            huffman_code <<= 1;
+        }
+        njThrow(NJ_INTERNAL_ERR);
+        return 0; // never reach here
+
+    }
+    bool fast_ready{false};
+    inline int find(BitstreamContextBE &br)
+    {
+        if (fast_ready) {
+            return find_fast(br);
+        }
+        else {
+
+            int symbol = find_slow(br);
+
+            fast_ready = delayed.valid() && delayed.wait_for(std::chrono::seconds(0)) == std::future_status::ready; // parse_async() is done
+            return symbol;
+        }
+    }
+    int find_fast(BitstreamContextBE &br) const
+    {
+        // if ( fast_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        // {
+
+
+
+        int peek = br.bits_peek_nz_be(16);
+
+        #if 0
+
+        int node = 0;
+        for (int mask = 0x8000, bitlen=1;mask; mask >>= 1, ++bitlen )
+        {
+            node = ( peek & mask ) == 0 ? poollist[node].left : poollist[node].right;
+            if ( poollist[node].right || poollist[node].left )
+            {
+                br.bits_skip_be(bitlen);
+                return poollist[node].symbol;
+            }
+
+        }
+        njThrow(NJ_INTERNAL_ERR);
+
+        #else
+
+        auto symbol = fast_access[ peek ];
+        if ( symbol == 0x0f)
+        {
+            njThrow(NJ_INTERNAL_ERR);
+        }
+            br.bits_skip_be(fast_bits[symbol]);
+            return symbol;
+
+        #endif
+    }
+
+
 };
 
     struct nj_component_t
@@ -588,11 +717,7 @@ struct HuffTree
     };
     nj_context_t nj{};
 
-    template <typename STR>
-    inline void njThrow(STR &&e)
-    {
-        throw std::domain_error(std::forward<STR>(e));
-    }
+
 
     inline void njSkip(int count)
     {
@@ -712,9 +837,11 @@ struct HuffTree
         njSkip(nj.length);
     }
 
+
     inline void njDecodeDHT(void)
     {
         njDecodeLength();
+
         while (nj.length >= 17)
         {
             int i = nj.pos[0];
@@ -723,7 +850,15 @@ struct HuffTree
             if (i & 0x02)
                 njThrow(NJ_UNSUPPORTED);
             i = (i | (i >> 3)) & 3; // combined DC/AC + tableid value
-            njSkip(17 + nj.hufftab[i].parse(nj.pos + 1));
+            njSkip(1);
+            const uint8_t* dht = nj.pos;
+            nj.hufftab[i].dht = dht;
+            nj.hufftab[i].parse_async();
+            //nj.hufftab[i].fast_ready = true;
+            for (int i = 0; i < 16; ++i)
+              njSkip(dht[i]+1);
+
+
         }
         if (nj.length)
             njThrow(NJ_SYNTAX_ERROR);
@@ -758,8 +893,8 @@ struct HuffTree
 
     inline int njGetVLC(HuffTree &tree, uint8_t *code)
     {
-        int value = tree.find([this]()
-                              { return nj.bitstream.bits_read_bit_be(); });
+
+        int value = tree.find(nj.bitstream);
         if (code)
             *code = (uint8_t)value;
         int bits = value & 15;
@@ -972,6 +1107,10 @@ struct HuffTree
                 njDecodeScan();
                 //if ( njDecode16(nj.pos) != 0xFFD9) njThrow(NJ_SYNTAX_ERROR);
                 //std::cout << std::hex << njDecode16(nj.pos) << std::endl; // 0xFFD9
+                // for (auto & tree : nj.hufftab)
+                // {
+                //     tree.fast_future.get(); // wait for all threads to finish
+                // }
                 return;
             case 0xFE:
                 njSkipMarker();
@@ -990,3 +1129,5 @@ struct HuffTree
     int njIsColor(void) const { return (nj.ncomp != 1); }
     auto &njGetComponents(void) { return nj.comp; }
 };
+
+

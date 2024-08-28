@@ -176,21 +176,23 @@ int main(int argc, char ** argv) {
     }
     StopWatch decode_time, convert_time;
 
-    int times = std::ceil( 1024*1024*100.0 / mmap.size() );
-
+    int times = std::min( std::ceil( 1024*1024*512.0 / mmap.size() ), 100.);
+    std::cout << "bencmarking turbo" << std::endl;
     decode_time.start();
     for (int i = 0; i < times; i++)
     {
         jpeg_turbo_bench(mmap.data(),mmap.size());
     }
     decode_time.stop();
+    std::cout << "bencmarking nano" << std::endl;
+
     auto turbo_elipsed = decode_time.elipsed();
 
 
     decode_time.start();
     for (int i = 0; i < times; i++)
     {
-            nanojpeg_bench(mmap.data(),mmap.size());
+        nanojpeg_bench(mmap.data(),mmap.size());
     }
     decode_time.stop();
 
