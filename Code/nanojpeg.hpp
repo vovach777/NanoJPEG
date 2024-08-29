@@ -1,5 +1,6 @@
-// NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
-// version 1.3.5 (2016-11-14)
+// NanoJPEG++ -- KeyJ's Tiny Baseline JPEG Decoder
+// version 2.0.0 (2024-08-29)
+// Copyright (c) 2024 vovach777
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
 // published under the terms of the MIT license
 //
@@ -48,23 +49,50 @@ template <typename STR>
         throw std::domain_error(std::forward<STR>(e));
     }
 
-// #define njThrow(msg)
-//     throw std::domain_error(msg)
+#ifndef HAS_BUILTIN_CLZ
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_clz)
+#define HAS_BUILTIN_CLZ
+#endif
+#else
+#if defined(_MSC_VER)
+#include <intrin.h>
+#pragma intrinsic(_BitScanReverse)
+inline int __builtin_clz(unsigned long mask)
+{
+    unsigned long where;
+    // Search from LSB to MSB for first set bit.
+    // Returns zero if no set bit is found.
+    if (_BitScanReverse(&where, mask))
+        return static_cast<int>(31 - where);
+    return 32; // Undefined Behavior.
+}
+#define HAS_BUILTIN_CLZ
+#else
+inline int __builtin_clz(unsigned long mask)
+{
+    if (mask == 0)
+        return 32;
+    int where = 31;
+    while ((mask & (1UL << where)) == 0)
+        result--;
+    return 32 - where;
+}
+#endif
+#endif
+#endif
 
 inline int leading_ones(int peek) {
     return __builtin_clz( ~( peek << 16) );
 }
 
-// njInit: Initialize NanoJPEG.
-// For safety reasons, this should be called at least one time before using
-// using any of the other NanoJPEG functions.
 
 // njDecode: Decode a JPEG image.
 // Decodes a memory dump of a JPEG file into internal buffers.
 // Parameters:
 //   jpeg = The pointer to the memory dump.
 //   size = The size of the JPEG file.
-// Return value: The error code in case of failure, or NJ_OK (zero) on success.
+// throw exeption if error occurs
 
 // njGetWidth: Return the width (in pixels) of the most recently decoded
 // image. If njDecode() failed, the result of njGetWidth() is undefined.
@@ -76,22 +104,9 @@ inline int leading_ones(int peek) {
 // (RGB) or 0 if it is a grayscale image. If njDecode() failed, the result
 // of njGetWidth() is undefined.
 
-// njGetImage: Returns the decoded image data.
-// Returns a pointer to the most recently image. The memory layout it byte-
-// oriented, top-down, without any padding between lines. Pixels of color
-// images will be stored as three consecutive bytes for the red, green and
-// blue channels. This data format is thus compatible with the PGM or PPM
-// file formats and the OpenGL texture formats GL_LUMINANCE8 or GL_RGB8.
-// If njDecode() failed, the result of njGetImage() is undefined.
-
-// njGetImageSize: Returns the size (in bytes) of the image data returned
-// by njGetImage(). If njDecode() failed, the result of njGetImageSize() is
-// undefined.
-
-// njDone: Uninitialize NanoJPEG.
-// Resets NanoJPEG's internal state and frees all memory that has been
-// allocated at run-time by NanoJPEG. It is still possible to decode another
-// image after a njDone() call.
+// njGetComponents: Returns the decoded components. No colorspace coversion.
+// Returns a reference to componets. Move object if you want to keep it before
+// calling njDecode again. If njDecode() failed, the result of njGetComponents() is undefined.
 
 
 inline uint8_t njClip(const int x)
@@ -1003,5 +1018,3 @@ struct HuffTree
     int njIsColor(void) const { return (nj.ncomp != 1); }
     auto &njGetComponents(void) { return nj.comp; }
 };
-
-

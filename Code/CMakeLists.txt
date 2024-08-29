@@ -13,7 +13,7 @@ add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
 
 add_compile_options(nanojpeg  -mtune=native -march=native -mcpu=native)
 if(CMAKE_BUILD_TYPE MATCHES "Release")
-    add_compile_options(nanojpeg -msse4.1 -ffast-math -Ofast)
+    add_compile_options(nanojpeg -msse4.1  -mavx -ffast-math -Ofast)
 endif()
 
 find_package(Stb REQUIRED)
