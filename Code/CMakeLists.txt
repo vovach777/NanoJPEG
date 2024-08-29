@@ -11,9 +11,9 @@ add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
 
 
-add_compile_options(nanojpeg  -mtune=ivybridge  -mcpu=ivybridge -funsafe-math-optimizations)
+add_compile_options(nanojpeg  -mtune=native -march=native -mcpu=native)
 if(CMAKE_BUILD_TYPE MATCHES "Release")
-    add_compile_options(nanojpeg -msse4.1 -Ofast)
+    add_compile_options(nanojpeg -msse4.1 -ffast-math -Ofast)
 endif()
 
 find_package(Stb REQUIRED)

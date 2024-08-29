@@ -48,6 +48,13 @@ template <typename STR>
         throw std::domain_error(std::forward<STR>(e));
     }
 
+// #define njThrow(msg)
+//     throw std::domain_error(msg)
+
+inline int leading_ones(int peek) {
+    return __builtin_clz( ~( peek << 16) );
+}
+
 // njInit: Initialize NanoJPEG.
 // For safety reasons, this should be called at least one time before using
 // using any of the other NanoJPEG functions.
@@ -150,63 +157,6 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
 }
 
 
-// inline float b1_b3 = float(1/std::cos(4*M_PI/16));
-// inline float b2 = float(1/std::cos(6*M_PI/16));
-// inline float b4 = float(1/std::cos(2*M_PI/16));
-// inline float b5 = float(1/( std::cos(2*M_PI/16) + std::cos(6*M_PI/16)  ));
-
-// void idct8(float s0, float s1, float s2, float s3, float s4, float s5, float s6, float s7,
-//            float& d0, float& d1, float& d2, float& d3, float& d4, float& d5, float& d6, float& d7)
-// {
-//         const float src4 = s5;
-//         const float src7 = s3;
-//         const float x4  = src4 - src7;
-//         const float x7  = src4 + src7;
-
-//         const float src5 = s1;
-//         const float src6 = s7;
-//         const float x5  = src5 + src6;
-//         const float x6  = src5 - src6;
-
-//         const float tmp1 = b5*(x4 - x6);
-//         const float stg26 = b4*(x6) - tmp1;
-
-//         const float x24 = tmp1 - b2*(x4);
-
-//         const float x15 = x5 - x7;
-//         const float x17 = x5 + x7;
-
-//         const float tmp2 = stg26 - x17;
-//         const float tmp3 =b1_b3*(x15) - tmp2;
-//         const float x44 = tmp3 + x24;
-
-//         const float src0 = s0;
-//         const float src1 = s4;
-//         const float x30 = src0 + src1;
-//         const float x31 = src0 - src1;
-
-//         const float src2 = s2;
-//         const float src3 = s6;
-//         const float x12 = src2 - src3;
-//         const float x13 = src2 + src3;
-
-//         const float x32 = b1_b3*(x12) - x13;
-
-//         const float x40 = x30 + x13;
-//         const float x43 = x30 - x13;
-//         const float x41 = x31 + x32;
-//         const float x42 = x31 - x32;
-
-//          d0 = x40 + x17;
-//          d1 = x41 + tmp2;
-//          d2 = x42 + tmp3;
-//          d3 = x43 - x44;
-//          d4 = x43 + x44;
-//          d5 = x42 - tmp3;
-//          d6 = x41 - tmp2;
-//          d7 = x40 - x17;
-// }
-
 
 
 struct NanoJpeg
@@ -240,7 +190,7 @@ inline int bits_priv_refill_64_be()
             bits_valid = 64;
             return 0;
         }
-        uint8_t value = *ptr;
+        const uint8_t value = *ptr;
         if (value == 0xff) {
             if (ptr[1] != 0) { //unsafer than ptr+1 < buffer_end
                 buffer_end = ptr;
@@ -274,14 +224,14 @@ inline int bits_priv_refill_32_be()
 {
     if ( bits_valid > 32)
        return 0;
-    int end_bits_valid = bits_valid + 32;
+    const int end_bits_valid = bits_valid + 32;
     if ( ptr >= buffer_end ) {
        bits_valid = end_bits_valid;
        return 0;
     }
     while (bits_valid < end_bits_valid ) {
         if (ptr < buffer_end) {
-            uint8_t value = *ptr;
+            const uint8_t value = *ptr;
             if (value == 0xff) {
                 if (ptr[1] != 0) {
                     buffer_end = ptr;
@@ -451,86 +401,9 @@ inline void bits_skip_be(unsigned int n)
 
 struct HuffTree
 {
-#if 0
-    struct HuffNode
-    {
-        uint16_t left{}, right{};
-        uint8_t symbol{};
-    };
-    int freeIndex{1};
-    std::vector<HuffNode> poollist{};
-
-    inline int parse(const uint8_t *dht)
-    {
-        // parse_thread(dht);
-        // fast_future = std::async(std::launch::async, [this](const uint8_t* dht) { parse_thread(dht); }, dht).share();
-        const uint8_t *pCount = dht;
-        const uint8_t *pSymbol = dht + 16;
-        poollist.resize(64);
-        int iCurrentCode{0};
-        freeIndex = 1;
-        int ret_count{};
-        for (int bitLen = 1; bitLen <= 16; ++bitLen)
-        {
-            int count = *pCount++;
-            ret_count += count;
-            for (int i = 0; i < count; i++)
-            {
-                int iSymbol = *pSymbol++;
-                if (iSymbol == 0x0f)
-                {
-                    njThrow(NJ_UNSUPPORTED);
-                }
-                int iCode = iCurrentCode++;
-                insert(iCode, bitLen, iSymbol);
-            }
-            iCurrentCode <<= 1;
-        }
-        poollist.resize(freeIndex);
-        assert(poollist.size() < UINT16_MAX);
-
-        return ret_count;
-    }
-    inline void insert(int code, int len, int symbol)
-    {
-        int node = 0;
-        for (int i = len - 1; i >= 0; --i)
-        {
-            const auto v = (code >> i) & 1;
-            if (v == 0)
-            {
-                auto &left = poollist[node].left;
-                if (left == 0)
-                {
-                    left = (uint16_t)freeIndex++;
-                }
-                node = left;
-            }
-            else
-            {
-                auto &right = poollist[node].right;
-                if (right == 0)
-                {
-                    right = (uint16_t)freeIndex++;
-                }
-                node = right;
-            }
-            if (freeIndex >= poollist.size())
-                poollist.resize(poollist.size() * 2); // double the size of pool
-        }
-        assert(poollist[node].left == 0);  // must be a leaf node
-        assert(poollist[node].right == 0); // must be a leaf node
-        poollist[node].symbol = (uint8_t)symbol;
-    }
-
-#else
     std::vector< uint8_t > fast_access = std::vector< uint8_t >(0x10000,0x0f);
     std::vector< uint8_t > fast_bits = std::vector< uint8_t >(256,0);
-    //int  eob_position_in_fast_access{0};
-    //std::atomic<bool> fast_ready{false};
-    //std::shared_future<void> fast_future;
     const uint8_t *dht{nullptr};
-
     int  parse()
     {
         assert( dht != nullptr );
@@ -556,47 +429,81 @@ struct HuffTree
                 {
                     assert( vlc != vlc_end);
                     *vlc++ = code;
-
-
                 }
             }
         }
+        fast_ready = true;
         return symbols_count;
     }
+
     std::shared_future<void> delayed{};
+
     void parse_async() {
         fast_ready = false;
         delayed = std::async(std::launch::async, [this]() { parse(); }).share();
     }
-#endif
 
-    int find_slow(BitstreamContextBE &br) const
-    {
-        int peek = br.bits_peek_nz_be(16);
+    struct DHTItem {
+        uint16_t mask;
+        uint16_t code;
+        int8_t  bitlen;
+        uint8_t symbol;
+        uint16_t align;
+    };
+    std::vector<DHTItem> abc_dht{};
+    std::vector<uint8_t> ones_to_min_abc_index{};
+    static constexpr int CodeMask[16] = {0x8000,0xC000,0xE000,0xF000,0xF800,0xFC00,0xFE00,0xFF00,0xFF80,0xFFC0,0xFFE0,0xFFF0,0xFFF8,0xFFFC,0xFFFE,0xFFFF}; // 16-bit code mask
+    int build_index() {
         const uint8_t* symbols = dht+16;
         const uint8_t* counts = dht;
         int huffman_code = 0;
+
+        ones_to_min_abc_index.resize(16);
+        abc_dht.reserve(128);
+        int dht_size = 16;
         for (int bitlen = 1; bitlen <= 16; ++bitlen)
         {
             int count = *counts++;
+            dht_size += count;
             if (count > 0) {
-                const int peekcode = peek >> (16 - bitlen);
+                //IndexDHT idx{uint8_t(bitlen),uint16_t(huffman_code),symbols};
                 for (int i = 0; i < count; ++i) {
-                    int symbol = *symbols++;
-                    int code   = huffman_code++;
-                    if ( peekcode == code) {
-                        br.bits_skip_be(bitlen);
-                        return symbol;
+                    const int code = huffman_code++;
+                    auto& item = abc_dht.emplace_back();
+                    item.symbol = *symbols++;
+                    item.bitlen = bitlen;
+                    item.code = code << (16-bitlen);
+                    item.mask = CodeMask[bitlen-1]; // 16-bit code mask
+                    const int ones = leading_ones(item.code);
+                    if ( ones_to_min_abc_index[ones] == 0) {
+                        ones_to_min_abc_index[ones] = abc_dht.size()-1; // first index of this code length
                     }
                 }
             }
             huffman_code <<= 1;
         }
+        return dht_size;
+    }
+
+
+    int find_slow(BitstreamContextBE &br) const
+    {
+        const int peek = br.bits_peek_nz_be(16);
+        auto start = abc_dht.begin() +  ones_to_min_abc_index[ leading_ones(peek) ];
+        for (auto it = abc_dht.begin(); it != abc_dht.end(); ++it) {
+            if ( ( (it->code ^ peek) & it->mask ) == 0 )
+            {
+                br.bits_skip_be(it->bitlen);
+                return it->symbol;
+            }
+        }
         njThrow(NJ_INTERNAL_ERR);
-        return 0; // never reach here
 
     }
+
+
     bool fast_ready{false};
+
     inline int find(BitstreamContextBE &br)
     {
         if (fast_ready) {
@@ -610,41 +517,18 @@ struct HuffTree
             return symbol;
         }
     }
-    int find_fast(BitstreamContextBE &br) const
+    inline int find_fast(BitstreamContextBE &br) const
     {
-        // if ( fast_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-        // {
-
-
 
         int peek = br.bits_peek_nz_be(16);
-
-        #if 0
-
-        int node = 0;
-        for (int mask = 0x8000, bitlen=1;mask; mask >>= 1, ++bitlen )
-        {
-            node = ( peek & mask ) == 0 ? poollist[node].left : poollist[node].right;
-            if ( poollist[node].right || poollist[node].left )
-            {
-                br.bits_skip_be(bitlen);
-                return poollist[node].symbol;
-            }
-
-        }
-        njThrow(NJ_INTERNAL_ERR);
-
-        #else
-
         auto symbol = fast_access[ peek ];
         if ( symbol == 0x0f)
         {
             njThrow(NJ_INTERNAL_ERR);
         }
-            br.bits_skip_be(fast_bits[symbol]);
-            return symbol;
+        br.bits_skip_be(fast_bits[symbol]);
+        return symbol;
 
-        #endif
     }
 
 
@@ -666,7 +550,6 @@ struct HuffTree
 
     struct nj_context_t
     {
-        // nj_result_t error;
         const uint8_t *pos{};
         int size{};
         int length{};
@@ -837,7 +720,6 @@ struct HuffTree
         njSkip(nj.length);
     }
 
-
     inline void njDecodeDHT(void)
     {
         njDecodeLength();
@@ -853,15 +735,23 @@ struct HuffTree
             njSkip(1);
             const uint8_t* dht = nj.pos;
             nj.hufftab[i].dht = dht;
-            nj.hufftab[i].parse_async();
-            //nj.hufftab[i].fast_ready = true;
-            for (int i = 0; i < 16; ++i)
-              njSkip(dht[i]+1);
-
+            njSkip(nj.hufftab[i].build_index());
+            //nj.hufftab[i].parse_async();
 
         }
         if (nj.length)
             njThrow(NJ_SYNTAX_ERROR);
+        auto foreground_vlc_build = std::async(std::launch::async,[this]{
+            for (auto& huffman : nj.hufftab)
+            {
+                huffman.parse();
+            }
+        }).share();
+        for (auto& huffman : nj.hufftab)
+        {
+            huffman.delayed = foreground_vlc_build;
+        }
+
     }
 
     inline void njDecodeDQT(void)
@@ -919,14 +809,11 @@ struct HuffTree
         int dcval = njGetVLC(dc, NULL);
         c.dcpred += dcval;
 
-        // c->dcpred += huffman_decode_dc(dc);
-        auto ZZil = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+        static const int ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
                      11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
                      42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
                      38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
 
-        auto njZZopt = std::begin(ZZil);
-        bool allZiros = true;
 
         block[0] = (c.dcpred) * qtab[0] * float(1. / 1024.); // DC component scaling and quantization
 
@@ -936,7 +823,6 @@ struct HuffTree
             int value = njGetVLC(ac, &code);
             if (!code)
                 break; // EOB
-            allZiros = false;
             if (!(code & 0x0F) && (code != 0xF0))
                 njThrow(NJ_SYNTAX_ERROR);
             coef += (code >> 4) + 1; // RLE jumps
@@ -944,11 +830,11 @@ struct HuffTree
             {
                 njThrow(NJ_SYNTAX_ERROR);
             }
-            block[njZZopt[coef]] = value * qtab[coef] * float(1. / 1024.); // DCT coefficients scaling and quantization
+            block[ ZZ[coef]] = value * qtab[coef] * float(1. / 1024.); // DCT coefficients scaling and quantization
         } while (coef < 63);
         const int stride = c.stride;
 
-        if (!allZiros)
+        if (coef)
         {
 
             idct8(block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7]);
@@ -979,7 +865,7 @@ struct HuffTree
             }
         }
         else
-        {
+        {   //only DC component
             auto value = njClip(block[0] + 128.5f);
             for (int i = 0; i < 8; ++i)
             {
@@ -1014,7 +900,6 @@ struct HuffTree
             njThrow(NJ_UNSUPPORTED);
         njSkip(nj.length);
         nj.bitstream.set_buffer(nj.pos, nj.size);
-        auto prev_pos = nj.pos;
 
         for (mbx = mby = 0;;)
         {
@@ -1041,9 +926,6 @@ struct HuffTree
                 size_t size = nj.bitstream.ptr + 2  - nj.pos; // 2 bytes for RST marker
                 nj.pos += size; // skip RST marker
                 nj.size -= size; // skip RST marker
-                // nj.pos = nj.bitstream.ptr + 2;
-                // nj.size -= nj.pos - prev_pos;
-                // prev_pos = nj.pos;
                 if (nj.size < 0)
                     njThrow(NJ_SYNTAX_ERROR);
                 int code = njDecode16(nj.bitstream.ptr);
@@ -1058,10 +940,6 @@ struct HuffTree
                 rstcount = nj.rstinterval;
                 for (auto & c : nj.comp) c.dcpred = 0; // reset DC prediction to 0
             }
-            // if (bitstream.ptr == bitstream.buffer_end && (bitstream.bits_valid==0)) {
-            //     if( njDecode16(bitstream.ptr) != 0xFFD9) njThrow(NJ_SYNTAX_ERROR);
-            //     return;
-            // }
         }
         size_t size = nj.bitstream.ptr - nj.pos; // 2 bytes for RST marker
         nj.pos += size; // skip RST marker
