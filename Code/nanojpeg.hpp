@@ -164,8 +164,7 @@ struct NanoJpeg
 
 struct BitstreamContextBE {
     uint64_t bits = 0; // stores bits read from the buffer
-    const uint8_t *marker_ptr{};
-    const uint8_t *buffer = nullptr, *buffer_end = nullptr;
+    const uint8_t *buffer_end = nullptr;
     const uint8_t *ptr = nullptr; // pointer to the position inside a buffer
     int bits_valid = 0; // number of bits left in bits field
 
@@ -268,7 +267,6 @@ inline int bits_priv_refill_32_be()
 
 void set_buffer(const uint8_t *buffer,  int64_t buffer_size)
 {
-    this->buffer = buffer;
     buffer_end = buffer + buffer_size;
     ptr = buffer;
     bits_valid = 0;
@@ -326,8 +324,7 @@ inline uint32_t bits_read_nz_be(unsigned int n)
         {
             bits_priv_refill_32_be();
         }
-            if ( bits_valid < n )
-                throw std::runtime_error("Invalid data found when processing input");
+        assert( bits_valid >= n );
 
     }
     return bits_priv_val_get_be(n);
@@ -386,7 +383,7 @@ inline void bits_skip_be(unsigned int n)
         bits = 0;
         bits_valid = 0;
         if (n >= 64) {
-            unsigned int skip = n / 8;
+            const unsigned int skip = n / 8;
             n -= skip * 8;
             ptr += skip;
         }
@@ -432,7 +429,7 @@ struct HuffTree
                 }
             }
         }
-        fast_ready = true;
+        //fast_ready = true;
         return symbols_count;
     }
 
@@ -466,7 +463,6 @@ struct HuffTree
             int count = *counts++;
             dht_size += count;
             if (count > 0) {
-                //IndexDHT idx{uint8_t(bitlen),uint16_t(huffman_code),symbols};
                 for (int i = 0; i < count; ++i) {
                     const int code = huffman_code++;
                     auto& item = abc_dht.emplace_back();
