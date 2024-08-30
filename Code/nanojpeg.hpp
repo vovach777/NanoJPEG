@@ -28,7 +28,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include  <utility>
 #include <vector>
+#include <array>
 #include <stdexcept>
 #include <cstdint>
 #include <climits>
@@ -36,7 +38,8 @@
 #include <algorithm>
 #include <limits>
 #include <future>
-
+#include <atomic>
+#include <memory>
 #define NJ_NO_JPEG "NJ_NO_JPEG"           // not a JPEG file
 #define NJ_UNSUPPORTED "NJ_UNSUPPORTED"   // unsupported format
 #define NJ_OUT_OF_MEM "NJ_OUT_OF_MEM"     // out of memory
@@ -44,7 +47,7 @@
 #define NJ_SYNTAX_ERROR "NJ_SYNTAX_ERROR" // syntax error
 
 template <typename STR>
-    inline void njThrow(STR &&e)
+    [[noreturn]] inline void njThrow(STR &&e)
     {
         throw std::domain_error(std::forward<STR>(e));
     }
@@ -170,7 +173,6 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
     s6 = (tmp1 - tmp6);
     s7 = (tmp0 - tmp7);
 }
-
 
 
 
@@ -397,12 +399,10 @@ inline void bits_skip_be(unsigned int n)
         n -= bits_valid;
         bits = 0;
         bits_valid = 0;
-        if (n >= 64) {
-            const unsigned int skip = n / 8;
-            n -= skip * 8;
-            ptr += skip;
+        while (n >= 64) {
+            bits_priv_refill_64_be();
+            n -= 64;
         }
-        bits_priv_refill_64_be();
         if (n)
             bits_priv_skip_remaining_be(n);
     }
@@ -411,67 +411,59 @@ inline void bits_skip_be(unsigned int n)
 };
 
 
-struct HuffTree
+struct HuffCode
 {
-    std::vector< uint8_t > fast_access = std::vector< uint8_t >(0x10000,0x0f);
-    std::vector< uint8_t > fast_bits = std::vector< uint8_t >(256,0);
+
+    static constexpr int LOCKUP_SIZE = 4;
+    std::array< uint16_t, 1 << LOCKUP_SIZE > fast_lockup{};
+
     const uint8_t *dht{nullptr};
-    int  parse()
+    int max_peek{0};
+
+    void build_lockup()
     {
-        assert( dht != nullptr );
+
+        // Build the fast lookup table for the Huffman decoding.
+        max_peek = 0;
+        assert(dht != nullptr);
         const uint8_t *pCount = dht;
         const uint8_t *pSymbol = dht + 16;
-        int remain{65536}, spread{65536};
+        int remain = (1 << LOCKUP_SIZE), spread = (1 << LOCKUP_SIZE);
 
-        uint8_t* vlc = fast_access.data();
-        uint8_t* vlc_end = vlc + fast_access.size();
         int symbols_count = 0;
-
-        for (int codelen = 1;  codelen <= 16;  ++codelen) {
+        for (int codelen = 1; codelen <= LOCKUP_SIZE; ++codelen) {
             spread >>= 1;
             int currcnt = *pCount++;
             if (!currcnt) continue;
-            symbols_count+=currcnt;
-            remain -= currcnt << (16 - codelen);
+            symbols_count += currcnt;
+            remain -= currcnt << (LOCKUP_SIZE - codelen);
 
-            for (int i = 0;  i < currcnt;  ++i) {
-                auto code = *pSymbol++;
-                fast_bits[code] = (uint8_t)codelen;
-                for (int j = spread;  j;  --j)
-                {
-                    assert( vlc != vlc_end);
-                    *vlc++ = code;
+            for (int i = 0; i < currcnt; ++i) {
+                auto code = (*pSymbol++) << 8 | codelen;
+                for (int j = spread; j; --j) {
+                    fast_lockup.at(max_peek++) = code;
                 }
             }
         }
-        //fast_ready = true;
-        return symbols_count;
     }
 
-    std::shared_future<void> delayed{};
+    //std::shared_future<void> delayed{};
 
-    void parse_async() {
-        fast_ready = false;
-        delayed = std::async(std::launch::async, [this]() { parse(); }).share();
-    }
 
     struct DHTItem {
-        uint16_t mask;
+        uint32_t mask;
         uint16_t code;
-        int8_t  bitlen;
-        uint8_t symbol;
-        uint16_t align;
+        uint16_t symbolbit;
     };
-    std::vector<DHTItem> abc_dht{};
-    std::vector<uint8_t> ones_to_min_abc_index{};
-    static constexpr int CodeMask[16] = {0x8000,0xC000,0xE000,0xF000,0xF800,0xFC00,0xFE00,0xFF00,0xFF80,0xFFC0,0xFFE0,0xFFF0,0xFFF8,0xFFFC,0xFFFE,0xFFFF}; // 16-bit code mask
+    std::array<DHTItem,256> abc_dht{};
+    std::array<uint8_t,16> ones_to_min_abc_index{};
+    static constexpr uint16_t CodeMask[16] = {0x8000,0xC000,0xE000,0xF000,0xF800,0xFC00,0xFE00,0xFF00,0xFF80,0xFFC0,0xFFE0,0xFFF0,0xFFF8,0xFFFC,0xFFFE,0xFFFF}; // 16-bit code mask
     int build_index() {
         const uint8_t* symbols = dht+16;
         const uint8_t* counts = dht;
         int huffman_code = 0;
 
-        ones_to_min_abc_index.resize(16);
-        abc_dht.reserve(128);
+        auto item = abc_dht.begin();
         int dht_size = 16;
         for (int bitlen = 1; bitlen <= 16; ++bitlen)
         {
@@ -480,14 +472,17 @@ struct HuffTree
             if (count > 0) {
                 for (int i = 0; i < count; ++i) {
                     const int code = huffman_code++;
-                    auto& item = abc_dht.emplace_back();
-                    item.symbol = *symbols++;
-                    item.bitlen = bitlen;
-                    item.code = code << (16-bitlen);
-                    item.mask = CodeMask[bitlen-1]; // 16-bit code mask
-                    const int ones = leading_ones(item.code);
+
+                    item->symbolbit = ((*symbols++) << 8) | bitlen; // symbol and bitlen
+                    item->code = code << (16-bitlen);
+                    item->mask = CodeMask[bitlen-1]; // 16-bit code mask
+                    const int ones = leading_ones(item->code);
                     if ( ones_to_min_abc_index[ones] == 0) {
-                        ones_to_min_abc_index[ones] = abc_dht.size()-1; // first index of this code length
+                        ones_to_min_abc_index[ones] =  std::distance(abc_dht.begin(), item); // first index of this code length
+                    }
+                    item++;
+                    if ( item == abc_dht.end()) {
+                        njThrow(NJ_SYNTAX_ERROR);
                     }
                 }
             }
@@ -497,50 +492,38 @@ struct HuffTree
     }
 
 
-    int find_slow(BitstreamContextBE &br) const
+    uint16_t find_slow(const int peek) const noexcept
     {
-        const int peek = br.bits_peek_nz_be(16);
         auto start = abc_dht.begin() +  ones_to_min_abc_index[ leading_ones(peek) ];
-        for (auto it = abc_dht.begin(); it != abc_dht.end(); ++it) {
-            if ( ( (it->code ^ peek) & it->mask ) == 0 )
+        for (auto it = start; it != abc_dht.end(); ++it) {
+            if ( !( (it->code ^ peek) & it->mask ) )
             {
-                br.bits_skip_be(it->bitlen);
-                return it->symbol;
+                return it->symbolbit; // symbol and bitlen
             }
         }
-        njThrow(NJ_INTERNAL_ERR);
-
+        return uint16_t{0}; // error
     }
 
-
-    bool fast_ready{false};
-
-    inline int find(BitstreamContextBE &br)
-    {
-        if (fast_ready) {
-            return find_fast(br);
-        }
-        else {
-
-            int symbol = find_slow(br);
-
-            fast_ready = delayed.valid() && delayed.wait_for(std::chrono::seconds(0)) == std::future_status::ready; // parse_async() is done
-            return symbol;
-        }
-    }
-    inline int find_fast(BitstreamContextBE &br) const
+    inline uint16_t find(const int peek16) const noexcept
     {
 
-        int peek = br.bits_peek_nz_be(16);
-        auto symbol = fast_access[ peek ];
-        if ( symbol == 0x0f)
-        {
-            njThrow(NJ_INTERNAL_ERR);
+        const int peek = peek16 >> (16 - LOCKUP_SIZE);
+        if (peek >= max_peek ) {
+            return find_slow(peek16);
         }
-        br.bits_skip_be(fast_bits[symbol]);
-        return symbol;
+        const auto symbolbits = fast_lockup[ peek ];
+        // uint8_t codelen = symbolbits & 0xff; // codelen
+        // uint8_t symbol = symbolbits >> 8; // symbol
+        // if ( codelen == 0)
+        // {
+        //     //something wrong, should never happen
+        //     //return find_slow(peek16);
 
+        // }
+        return symbolbits;
     }
+
+
 
 
 };
@@ -570,7 +553,7 @@ struct HuffTree
         int ncomp{};
         std::vector<nj_component_t> comp{};
         int qtused{}, qtavail{};
-        std::vector<std::vector<int>> qtab{
+        std::vector<std::array<int,64>> qtab{
             {128, 178, 178, 167, 246, 167, 151, 232,
              232, 151, 128, 209, 219, 209, 128, 101,
              178, 197, 197, 178, 101, 69, 139, 167,
@@ -604,9 +587,8 @@ struct HuffTree
              46, 42, 69, 79, 69, 42, 35, 54,
              54, 35, 28, 37, 28, 19, 19, 10}};
 
-        // std::vector<std::vector< nj_vlc_code_t>> vlctab = std::vector(4, std::vector(65536, nj_vlc_code_t{}));
         int rstinterval{};
-        std::vector<HuffTree> hufftab = std::vector(4, HuffTree{});
+        std::vector<HuffCode> hufftab = std::vector(4, HuffCode{});
         BitstreamContextBE bitstream{};
     };
     nj_context_t nj{};
@@ -623,7 +605,7 @@ struct HuffTree
             njThrow(NJ_SYNTAX_ERROR);
     }
 
-    inline int njDecode16(const uint8_t *pos) const
+    inline int njDecode16(const uint8_t *pos) const noexcept
     {
         return (pos[0] << 8) | pos[1];
     }
@@ -745,24 +727,17 @@ struct HuffTree
             i = (i | (i >> 3)) & 3; // combined DC/AC + tableid value
             njSkip(1);
             const uint8_t* dht = nj.pos;
-            nj.hufftab[i].dht = dht;
-            njSkip(nj.hufftab[i].build_index());
-            //nj.hufftab[i].parse_async();
+            auto& hufftab=nj.hufftab[i];
+            hufftab.dht = dht;
+
+            auto task_index_DHT = std::async(std::launch::async, [&hufftab](){ return hufftab.build_index(); } );
+            hufftab.build_lockup();
+            njSkip(task_index_DHT.get());
+
 
         }
         if (nj.length)
             njThrow(NJ_SYNTAX_ERROR);
-        auto foreground_vlc_build = std::async(std::launch::async,[this]{
-            for (auto& huffman : nj.hufftab)
-            {
-                huffman.parse();
-            }
-        }).share();
-        for (auto& huffman : nj.hufftab)
-        {
-            huffman.delayed = foreground_vlc_build;
-        }
-
     }
 
     inline void njDecodeDQT(void)
@@ -792,35 +767,47 @@ struct HuffTree
         njSkip(nj.length);
     }
 
-    inline int njGetVLC(HuffTree &tree, uint8_t *code)
-    {
 
-        int value = tree.find(nj.bitstream);
-        if (code)
-            *code = (uint8_t)value;
-        int bits = value & 15;
-        if (!bits)
+
+    int njGetVLC(HuffCode &tree, int &code)
+    {
+        uint32_t peek = nj.bitstream.bits_peek_nz_be(32);
+        const auto symbolbit = tree.find(peek >> 16);
+        uint32_t codelen = symbolbit & 0xff;
+        uint32_t value = code = symbolbit >> 8U;
+        if (codelen == 0 || codelen > 16)
+            njThrow(NJ_INTERNAL_ERR);
+
+        peek <<= codelen; // remove the bits we just read from the peek buffer
+
+
+        uint32_t bits = value & 15U;
+
+        if (!bits) {
+            nj.bitstream.bits_skip_be(codelen);
             return 0;
-        value = nj.bitstream.bits_read_nz_be(bits);
-        if (value < (1 << (bits - 1)))
-            value += ((-1) << bits) + 1;
-        return value;
+        }
+
+        int bitvalue = ( peek >> (32U - bits) );
+        nj.bitstream.bits_skip_be(codelen + bits);  //nj.bitstream.bits_read_nz_be(bits);
+        if (bitvalue < (1 << (bits - 1)))
+            bitvalue += ((-1) << bits) + 1;
+        return bitvalue;
     }
 
-    inline void njDecodeBlock(nj_component_t &c, int offset)
+    void njDecodeBlock(nj_component_t &c, uint8_t * out)
     {
-        uint8_t code = 0;
-        uint8_t * out = c.pixels.data() + offset;
         float block[64]{};
         auto &qtab = nj.qtab[c.qtsel];
         auto &dc = nj.hufftab[c.dctabsel];
         auto &ac = nj.hufftab[c.actabsel];
 
+        int code{};
         // DC coef
-        int dcval = njGetVLC(dc, NULL);
+        int dcval = njGetVLC(dc, code);
         c.dcpred += dcval;
 
-        static const int ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+        static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
                      11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
                      42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
                      38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
@@ -828,10 +815,11 @@ struct HuffTree
 
         block[0] = (c.dcpred) * qtab[0] * float(1. / 1024.); // DC component scaling and quantization
 
-        int coef = 0;
+        int coef{0};
+
         do
         {
-            int value = njGetVLC(ac, &code);
+            int value = njGetVLC(ac, code);
             if (!code)
                 break; // EOB
             if (!(code & 0x0F) && (code != 0xF0))
@@ -866,18 +854,23 @@ struct HuffTree
             idct8(block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62]);
             idct8(block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63]);
 
-            for (int i = 0; i < 64;)
+            const float* blk = block;
+            for (; blk != block+64; out += stride - 8)
             {
-
-                out[i & 7] = njClip(block[i] + 128.5f);
-                i += 1;
-                if ((i & 7) == 0)
-                    out += stride; // next line
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
+                *out++ = njClip(*blk++ + 128.5f);
             }
         }
         else
         {   //only DC component
             auto value = njClip(block[0] + 128.5f);
+
             for (int i = 0; i < 8; ++i)
             {
                 std::fill(out, out + 8, value);
@@ -886,10 +879,8 @@ struct HuffTree
         }
     }
 
-    inline void njDecodeScan(void)
+    void njDecodeScan(void)
     {
-        int mbx, mby, sbx, sby;
-        int rstcount = nj.rstinterval, nextrst = 0;
         njDecodeLength();
         if (nj.length < (4 + 2 * nj.ncomp))
             njThrow(NJ_SYNTAX_ERROR);
@@ -911,15 +902,16 @@ struct HuffTree
             njThrow(NJ_UNSUPPORTED);
         njSkip(nj.length);
         nj.bitstream.set_buffer(nj.pos, nj.size);
-
-        for (mbx = mby = 0;;)
+        int rstcount = nj.rstinterval, nextrst = 0;
+        int mbx{0}, mby{0};
+        for (;;)
         {
             for (auto & c : nj.comp)
             {
-                for (sby = 0; sby < c.ssy; ++sby)
-                    for (sbx = 0; sbx < c.ssx; ++sbx)
+                for (int sby = 0; sby < c.ssy; ++sby)
+                    for (int sbx = 0; sbx < c.ssx; ++sbx)
                     {
-                        njDecodeBlock(c, ((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3);
+                        njDecodeBlock(c, c.pixels.data() +  (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
                     }
             }
 

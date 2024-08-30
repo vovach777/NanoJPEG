@@ -11,9 +11,9 @@ add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
 
 
-add_compile_options(nanojpeg  -mtune=native -march=native -mcpu=native)
+target_compile_options(nanojpeg PRIVATE -mtune=native -march=native -mcpu=native)
 if(CMAKE_BUILD_TYPE MATCHES "Release")
-    add_compile_options(nanojpeg -msse4.1  -mavx -ffast-math -Ofast)
+    target_compile_options(nanojpeg PRIVATE -msse4.1  -mavx -ffast-math -Ofast)
 endif()
 
 find_package(Stb REQUIRED)
@@ -22,3 +22,6 @@ target_include_directories(nanojpeg PRIVATE ${Stb_INCLUDE_DIR})
 find_package(libjpeg-turbo CONFIG REQUIRED)
 target_link_libraries(nanojpeg PRIVATE libjpeg-turbo::turbojpeg-static)
 
+# Получаем и выводим финальные флаги компиляции
+get_target_property(COMPILE_FLAGS_EXEC nanojpeg COMPILE_OPTIONS)
+message("Final compile flags: ${COMPILE_FLAGS_EXEC}")
