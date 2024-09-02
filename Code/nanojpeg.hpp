@@ -1,6 +1,6 @@
-// NanoJPEG++ -- KeyJ's Tiny Baseline JPEG Decoder
-// version 2.0.0 (2024-08-29)
-// Copyright (c) 2024 vovach777
+// NanoJPEG++ (version 1.0) -- vovach777's Tiny Baseline JPEG Decoder based on
+// NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
+// version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
 // published under the terms of the MIT license
 //
@@ -22,10 +22,7 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-///////////////////////////////////////////////////////////////////////////////
-// HEADER SECTION                                                            //
-// copy and pase this into nanojpeg.h if you want                            //
-///////////////////////////////////////////////////////////////////////////////
+// NanoJPEG++ is a C++17 rewrite of NanoJPEG with some improvements.
 
 #pragma once
 #include  <utility>
@@ -422,9 +419,10 @@ struct HuffCode
 
     void build_lockup()
     {
+        max_peek = 0;
+        if constexpr( LOCKUP_SIZE >= 4) {
 
         // Build the fast lookup table for the Huffman decoding.
-        max_peek = 0;
         assert(dht != nullptr);
         const uint8_t *pCount = dht;
         const uint8_t *pSymbol = dht + 16;
@@ -445,10 +443,8 @@ struct HuffCode
                 }
             }
         }
+        }
     }
-
-    //std::shared_future<void> delayed{};
-
 
     struct DHTItem {
         uint32_t mask;
@@ -456,15 +452,17 @@ struct HuffCode
         uint16_t symbolbit;
     };
     std::array<DHTItem,256> abc_dht{};
-    std::array<uint8_t,16> ones_to_min_abc_index{};
+    std::array<uint16_t,17> bitseek{};
     static constexpr uint16_t CodeMask[16] = {0x8000,0xC000,0xE000,0xF000,0xF800,0xFC00,0xFE00,0xFF00,0xFF80,0xFFC0,0xFFE0,0xFFF0,0xFFF8,0xFFFC,0xFFFE,0xFFFF}; // 16-bit code mask
     int build_index() {
         const uint8_t* symbols = dht+16;
         const uint8_t* counts = dht;
         int huffman_code = 0;
 
-        auto item = abc_dht.begin();
         int dht_size = 16;
+        uint32_t seek = 0;
+        int ones_pos = 0;
+        int ones_seek = 0;
         for (int bitlen = 1; bitlen <= 16; ++bitlen)
         {
             int count = *counts++;
@@ -472,30 +470,45 @@ struct HuffCode
             if (count > 0) {
                 for (int i = 0; i < count; ++i) {
                     const int code = huffman_code++;
+                    auto & item = abc_dht.at(seek);
+                    item.symbolbit = ((*symbols++) << 8) | bitlen; // symbol and bitlen
+                    item.code = code << (16-bitlen);
+                    item.mask = CodeMask[bitlen-1]; // 16-bit code mask
+                    const int ones = leading_ones(item.code);
 
-                    item->symbolbit = ((*symbols++) << 8) | bitlen; // symbol and bitlen
-                    item->code = code << (16-bitlen);
-                    item->mask = CodeMask[bitlen-1]; // 16-bit code mask
-                    const int ones = leading_ones(item->code);
-                    if ( ones_to_min_abc_index[ones] == 0) {
-                        ones_to_min_abc_index[ones] =  std::distance(abc_dht.begin(), item); // first index of this code length
+
+                    if ( ones > ones_pos )
+                    {
+                        while ( ones > ones_pos) {
+                            bitseek[ones_pos++] = ones_seek; // fill up the bitseek table
+                        }
+                        ones_seek = seek; // set the bitseek table
                     }
-                    item++;
-                    if ( item == abc_dht.end()) {
-                        njThrow(NJ_SYNTAX_ERROR);
-                    }
+                    seek+=1;
                 }
             }
             huffman_code <<= 1;
         }
+
+        while ( ones_pos < 17) {
+            bitseek[ones_pos++] = ones_seek; // fill up the bitseek table
+        }
+        // static int onetime_print = 0;
+        // if ( onetime_print++ < 4 ) {
+
+        //     for (auto s : bitseek) {
+        //         std::cout << s << " ";
+        //     }
+        //     std::cout << std::endl;
+        // }
         return dht_size;
     }
 
 
     uint16_t find_slow(const int peek) const noexcept
     {
-        auto start = abc_dht.begin() +  ones_to_min_abc_index[ leading_ones(peek) ];
-        for (auto it = start; it != abc_dht.end(); ++it) {
+
+        for (auto it = abc_dht.cbegin() +  bitseek[ leading_ones(peek) ]; it != abc_dht.cend(); ++it) {
             if ( !( (it->code ^ peek) & it->mask ) )
             {
                 return it->symbolbit; // symbol and bitlen
@@ -507,20 +520,16 @@ struct HuffCode
     inline uint16_t find(const int peek16) const noexcept
     {
 
-        const int peek = peek16 >> (16 - LOCKUP_SIZE);
-        if (peek >= max_peek ) {
+        if constexpr( LOCKUP_SIZE >= 4) {
+            const int peek = peek16 >> (16 - LOCKUP_SIZE);
+            if (peek >= max_peek ) {
+                return find_slow(peek16);
+            }
+            const auto symbolbits = fast_lockup[ peek ];
+            return symbolbits;
+        } else {
             return find_slow(peek16);
         }
-        const auto symbolbits = fast_lockup[ peek ];
-        // uint8_t codelen = symbolbits & 0xff; // codelen
-        // uint8_t symbol = symbolbits >> 8; // symbol
-        // if ( codelen == 0)
-        // {
-        //     //something wrong, should never happen
-        //     //return find_slow(peek16);
-
-        // }
-        return symbolbits;
     }
 
 
