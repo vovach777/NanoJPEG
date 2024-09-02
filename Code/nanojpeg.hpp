@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 1.0) -- vovach777's Tiny Baseline JPEG Decoder based on
+// NanoJPEG++ (version 2.0) -- vovach777's Tiny Baseline JPEG Decoder based on
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -25,7 +25,7 @@
 // NanoJPEG++ is a C++17 rewrite of NanoJPEG with some improvements.
 
 #pragma once
-#include  <utility>
+#include <utility>
 #include <vector>
 #include <array>
 #include <stdexcept>
@@ -34,8 +34,6 @@
 #include <cassert>
 #include <algorithm>
 #include <limits>
-#include <future>
-#include <atomic>
 #include <memory>
 #define NJ_NO_JPEG "NJ_NO_JPEG"           // not a JPEG file
 #define NJ_UNSUPPORTED "NJ_UNSUPPORTED"   // unsupported format
@@ -44,10 +42,10 @@
 #define NJ_SYNTAX_ERROR "NJ_SYNTAX_ERROR" // syntax error
 
 template <typename STR>
-    [[noreturn]] inline void njThrow(STR &&e)
-    {
-        throw std::domain_error(std::forward<STR>(e));
-    }
+[[noreturn]] inline void njThrow(STR &&e)
+{
+    throw std::domain_error(std::forward<STR>(e));
+}
 
 #ifndef HAS_BUILTIN_CLZ
 #if defined(__has_builtin)
@@ -82,10 +80,10 @@ inline int __builtin_clz(unsigned long mask)
 #endif
 #endif
 
-inline int leading_ones(int peek) {
-    return __builtin_clz( ~( peek << 16) );
+inline int leading_ones(int peek)
+{
+    return __builtin_clz(~(peek << 16));
 }
-
 
 // njDecode: Decode a JPEG image.
 // Decodes a memory dump of a JPEG file into internal buffers.
@@ -108,10 +106,10 @@ inline int leading_ones(int peek) {
 // Returns a reference to componets. Move object if you want to keep it before
 // calling njDecode again. If njDecode() failed, the result of njGetComponents() is undefined.
 
-
-inline uint8_t njClip(const int x)
+inline uint8_t njClip(int x)
 {
-    return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
+    //return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
+    return std::clamp(x, 0, 0xFF);
 }
 
 inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &s5, float &s6, float &s7)
@@ -171,371 +169,210 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
     s7 = (tmp0 - tmp7);
 }
 
-
-
 struct NanoJpeg
 {
 
-struct BitstreamContextBE {
-    uint64_t bits = 0; // stores bits read from the buffer
-    const uint8_t *buffer_end = nullptr;
-    const uint8_t *ptr = nullptr; // pointer to the position inside a buffer
-    int bits_valid = 0; // number of bits left in bits field
+    struct BitstreamContext
+    {
 
-/**
+        uint64_t bits = 0; // stores bits read from the buffer
+        const uint8_t *buffer_end = nullptr;
+        const uint8_t *ptr = nullptr; // pointer to the position inside a buffer
+        int bits_valid = 0;           // number of bits left in bits field
 
- * @return
+        void set_buffer(const uint8_t *buffer, int64_t buffer_size)
+        {
+            buffer_end = buffer + buffer_size;
+            ptr = buffer;
+            bits_valid = 0;
+            bits = 0;
+        }
 
- * - 0 on successful refill
-
- * - a negative number when bitstream end is hit
-
- *
-
- * Always succeeds when UNCHECKED_BITSTREAM_READER is enabled.
-
- */
-inline int bits_priv_refill_64_be()
-{
-    bits = 0;
-    while (bits_valid < 64) {
-        if (ptr >= buffer_end) {
-            bits_valid = 64;
+        inline uint8_t readjbyte()
+        {
+            if (ptr < buffer_end)
+            {
+                const uint8_t value = *ptr++;
+                if (value != 0xff)
+                {
+                    return value;
+                }
+                if (*ptr++ == 0)
+                    return 0xff;
+                buffer_end = --ptr;
+            }
             return 0;
         }
-        const uint8_t value = *ptr;
-        if (value == 0xff) {
-            if (ptr[1] != 0) { //unsafer than ptr+1 < buffer_end
-                buffer_end = ptr;
-                bits_valid = 64;
-                return 0;
-            }
-            ptr += 1;
-        }
-        ptr += 1;
-        bits |= uint64_t(value) << (56 - bits_valid);
-        bits_valid += 8;
-    }
-    assert(bits_valid == 64);
 
-    return 0;
-}
-/**
-
- * @return
-
- * - 0 on successful refill
-
- * - a negative number when bitstream end is hit
-
- *
-
- * Always succeeds when UNCHECKED_BITSTREAM_READER is enabled.
-
- */
-inline int bits_priv_refill_32_be()
-{
-    if ( bits_valid > 32)
-       return 0;
-    const int end_bits_valid = bits_valid + 32;
-    if ( ptr >= buffer_end ) {
-       bits_valid = end_bits_valid;
-       return 0;
-    }
-    while (bits_valid < end_bits_valid ) {
-        if (ptr < buffer_end) {
-            const uint8_t value = *ptr;
-            if (value == 0xff) {
-                if (ptr[1] != 0) {
-                    buffer_end = ptr;
-                    bits_valid = end_bits_valid;
-                    return 0;
-                }
-                ptr += 1;
-            }
-            ptr += 1;
-            if (value)
-                bits |= uint64_t(value) << (56 - bits_valid);
-        }
-        bits_valid += 8;
-    }
-
-    assert(bits_valid <= 64);
-    return 0;
-}
-/**
-
- * Initialize BitstreamContext.
-
- * @param buffer bitstream buffer, must be AV_INPUT_BUFFER_PADDING_SIZE bytes
-
- *        larger than the actual read bits because some optimized bitstream
-
- *        readers read 32 or 64 bits at once and could read over the end
-
- * @param bit_size the size of the buffer in bits
-
- * @return 0 on success, AVERROR_INVALIDDATA if the buffer_size would overflow.
-
- */
-
-void set_buffer(const uint8_t *buffer,  int64_t buffer_size)
-{
-    buffer_end = buffer + buffer_size;
-    ptr = buffer;
-    bits_valid = 0;
-    bits = 0;
-
-    if (buffer_end < ptr || buffer == nullptr) {
-        throw std::length_error("Invalid data found when processing input");
-    }
-
-    bits_priv_refill_64_be();
-}
-
-inline uint64_t bits_priv_val_show_be(unsigned int n)
-{
-    return bits >> (64 - n);
-}
-inline void bits_priv_skip_remaining_be(unsigned int n)
-{
-    bits <<= n;
-    bits_valid -= n;
-}
-inline uint64_t bits_priv_val_get_be(unsigned int n)
-{
-    uint64_t ret;
-    ret = bits_priv_val_show_be(n);
-    bits_priv_skip_remaining_be(n);
-    return ret;
-}
-/**
-
- * Return one bit from the buffer.
-
- */
-inline unsigned int bits_read_bit_be()
-{
-    if (!bits_valid && bits_priv_refill_64_be() < 0)
-        return 0;
-    return bits_priv_val_get_be(1);
-}
-/**
-
- * Return n bits from the buffer, n has to be in the 1-32 range.
-
- * May be faster than bits_read() when n is not a compile-time constant and is
-
- * known to be non-zero;
-
- */
-inline uint32_t bits_read_nz_be(unsigned int n)
-{
-    if (n > bits_valid) {
-        if (bits_valid == 0)
-            bits_priv_refill_64_be();
-        else
+        void refill()
         {
-            bits_priv_refill_32_be();
-        }
-        assert( bits_valid >= n );
-
-    }
-    return bits_priv_val_get_be(n);
-}
-/**
-
- * Return n bits from the buffer, n has to be in the 0-32  range.
-
- */
-inline uint32_t bits_read_be(unsigned int n)
-{
-    if (!n)
-        return 0;
-    // if (n==1) {
-    //     return bits_read_bit_be();
-    // }
-    return bits_read_nz_be(n);
-}
-/**
-
- * Return n bits from the buffer but do not change the buffer state.
-
- * n has to be in the 1-32 range. May
-
- */
-inline uint32_t bits_peek_nz_be(unsigned int n)
-{
-    if (n > bits_valid)
-        bits_priv_refill_32_be();
-    return bits_priv_val_show_be(n);
-}
-/**
-
- * Return n bits from the buffer but do not change the buffer state.
-
- * n has to be in the 0-32 range.
-
- */
-inline uint32_t bits_peek_be(unsigned int n)
-{
-    if (!n)
-        return 0;
-    return bits_peek_nz_be(n);
-}
-/**
-
- * Skip n bits in the buffer.
-
- */
-inline void bits_skip_be(unsigned int n)
-{
-    if (n < bits_valid)
-        bits_priv_skip_remaining_be(n);
-    else {
-        n -= bits_valid;
-        bits = 0;
-        bits_valid = 0;
-        while (n >= 64) {
-            bits_priv_refill_64_be();
-            n -= 64;
-        }
-        if (n)
-            bits_priv_skip_remaining_be(n);
-    }
-}
-
-};
-
-
-struct HuffCode
-{
-
-    static constexpr int LOCKUP_SIZE = 4;
-    std::array< uint16_t, 1 << LOCKUP_SIZE > fast_lockup{};
-
-    const uint8_t *dht{nullptr};
-    int max_peek{0};
-
-    void build_lockup()
-    {
-        max_peek = 0;
-        if constexpr( LOCKUP_SIZE >= 4) {
-
-        // Build the fast lookup table for the Huffman decoding.
-        assert(dht != nullptr);
-        const uint8_t *pCount = dht;
-        const uint8_t *pSymbol = dht + 16;
-        int remain = (1 << LOCKUP_SIZE), spread = (1 << LOCKUP_SIZE);
-
-        int symbols_count = 0;
-        for (int codelen = 1; codelen <= LOCKUP_SIZE; ++codelen) {
-            spread >>= 1;
-            int currcnt = *pCount++;
-            if (!currcnt) continue;
-            symbols_count += currcnt;
-            remain -= currcnt << (LOCKUP_SIZE - codelen);
-
-            for (int i = 0; i < currcnt; ++i) {
-                auto code = (*pSymbol++) << 8 | codelen;
-                for (int j = spread; j; --j) {
-                    fast_lockup.at(max_peek++) = code;
-                }
-            }
-        }
-        }
-    }
-
-    struct DHTItem {
-        uint32_t mask;
-        uint16_t code;
-        uint16_t symbolbit;
-    };
-    std::array<DHTItem,256> abc_dht{};
-    std::array<uint16_t,17> bitseek{};
-    static constexpr uint16_t CodeMask[16] = {0x8000,0xC000,0xE000,0xF000,0xF800,0xFC00,0xFE00,0xFF00,0xFF80,0xFFC0,0xFFE0,0xFFF0,0xFFF8,0xFFFC,0xFFFE,0xFFFF}; // 16-bit code mask
-    int build_index() {
-        const uint8_t* symbols = dht+16;
-        const uint8_t* counts = dht;
-        int huffman_code = 0;
-
-        int dht_size = 16;
-        uint32_t seek = 0;
-        int ones_pos = 0;
-        int ones_seek = 0;
-        for (int bitlen = 1; bitlen <= 16; ++bitlen)
-        {
-            int count = *counts++;
-            dht_size += count;
-            if (count > 0) {
-                for (int i = 0; i < count; ++i) {
-                    const int code = huffman_code++;
-                    auto & item = abc_dht.at(seek);
-                    item.symbolbit = ((*symbols++) << 8) | bitlen; // symbol and bitlen
-                    item.code = code << (16-bitlen);
-                    item.mask = CodeMask[bitlen-1]; // 16-bit code mask
-                    const int ones = leading_ones(item.code);
-
-
-                    if ( ones > ones_pos )
-                    {
-                        while ( ones > ones_pos) {
-                            bitseek[ones_pos++] = ones_seek; // fill up the bitseek table
-                        }
-                        ones_seek = seek; // set the bitseek table
-                    }
-                    seek+=1;
-                }
-            }
-            huffman_code <<= 1;
-        }
-
-        while ( ones_pos < 17) {
-            bitseek[ones_pos++] = ones_seek; // fill up the bitseek table
-        }
-        // static int onetime_print = 0;
-        // if ( onetime_print++ < 4 ) {
-
-        //     for (auto s : bitseek) {
-        //         std::cout << s << " ";
-        //     }
-        //     std::cout << std::endl;
-        // }
-        return dht_size;
-    }
-
-
-    uint16_t find_slow(const int peek) const noexcept
-    {
-
-        for (auto it = abc_dht.cbegin() +  bitseek[ leading_ones(peek) ]; it != abc_dht.cend(); ++it) {
-            if ( !( (it->code ^ peek) & it->mask ) )
+            while (bits_valid <= 56)
             {
-                return it->symbolbit; // symbol and bitlen
+                bits |= uint64_t(readjbyte()) << (56 - bits_valid);
+                bits_valid += 8;
             }
         }
-        return uint16_t{0}; // error
-    }
 
-    inline uint16_t find(const int peek16) const noexcept
+        inline void skip(int n)
+        {
+            bits <<= n;
+            bits_valid -= n;
+        }
+
+        inline uint32_t peek()
+        {
+            refill();
+            return bits >> 32;
+        }
+    };
+
+    template <int LOCKUP_SIZE>
+    struct HuffCode
     {
+        std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
 
-        if constexpr( LOCKUP_SIZE >= 4) {
+        const uint8_t *dht{nullptr};
+        int max_peek{0};
+
+        void build_lockup()
+        {
+            max_peek = 0;
+
+            // Build the fast lookup table for the Huffman decoding.
+            assert(dht != nullptr);
+            const uint8_t *pCount = dht;
+            const uint8_t *pSymbol = dht + 16;
+            int remain = (1 << LOCKUP_SIZE), spread = (1 << LOCKUP_SIZE);
+
+            int symbols_count = 0;
+            for (int codelen = 1; codelen <= LOCKUP_SIZE; ++codelen)
+            {
+                spread >>= 1;
+                int currcnt = *pCount++;
+                if (!currcnt)
+                    continue;
+                symbols_count += currcnt;
+                remain -= currcnt << (LOCKUP_SIZE - codelen);
+
+                for (int i = 0; i < currcnt; ++i)
+                {
+                    auto code = (*pSymbol++) << 8 | codelen;
+                    for (int j = spread; j; --j)
+                    {
+                        fast_lockup.at(max_peek++) = code;
+                    }
+                }
+            }
+        }
+
+        struct DHTItem
+        {
+            uint32_t mask;
+            uint16_t code;
+            uint16_t symbolbit;
+        };
+        std::array<DHTItem, 256> abc_dht{};
+        std::array<uint8_t, 17> bitseek{};
+        int build_index()
+        {
+            const uint8_t *symbols = dht + 16;
+            const uint8_t *counts = dht;
+            int huffman_code = 0;
+
+            int dht_size = 16;
+            uint32_t seek = 0;
+            int ones_pos = 0;
+            int ones_seek = 0;
+            for (int bitlen = 1; bitlen <= 16; ++bitlen)
+            {
+                int count = *counts++;
+                dht_size += count;
+                if (count > 0)
+                {
+                    for (int i = 0; i < count; ++i)
+                    {
+                        const int code = huffman_code++;
+                        auto &item = abc_dht.at(seek);
+                        item.symbolbit = ((*symbols++) << 8) | bitlen; // symbol and bitlen
+                        item.code = code << (16 - bitlen);
+                        item.mask = (0xFFFF << (16 - bitlen)) & 0xffff;
+                        const int ones = leading_ones(item.code);
+
+                        if (ones > ones_pos)
+                        {
+                            while (ones > ones_pos)
+                            {
+                                bitseek[ones_pos++] = std::min(0xff, ones_seek); // fill up the bitseek table
+                            }
+                            ones_seek = seek; // set the bitseek table
+                        }
+                        seek += 1;
+                    }
+                }
+                huffman_code <<= 1;
+            }
+
+            while (ones_pos < 17)
+            {
+                bitseek[ones_pos++] = std::min(0xff,ones_seek); // fill up the bitseek table
+            }
+            return dht_size;
+        }
+
+        inline uint16_t find_slow(const int peek) const noexcept
+        {
+
+            for (auto it = abc_dht.cbegin() + bitseek[leading_ones(peek)]; it != abc_dht.cend(); ++it)
+            {
+                if (!((it->code ^ peek) & it->mask))
+                {
+                    return it->symbolbit; // symbol and bitlen
+                }
+            }
+            return uint16_t{0}; // error
+        }
+
+        inline uint16_t find(const int peek16) const noexcept
+        {
+            static_assert(LOCKUP_SIZE >= 4 && LOCKUP_SIZE <= 16, "LOCKUP_SIZE must be between 4 and 16");
+            static_assert(sizeof(DHTItem) == 8);
+
             const int peek = peek16 >> (16 - LOCKUP_SIZE);
-            if (peek >= max_peek ) {
+            if (peek >= max_peek)
+            {
                 return find_slow(peek16);
             }
-            const auto symbolbits = fast_lockup[ peek ];
+            const auto symbolbits = fast_lockup[peek];
             return symbolbits;
-        } else {
-            return find_slow(peek16);
         }
-    }
 
+        inline int njGetVLC(BitstreamContext &bs, uint8_t &code) const
+        {
+            uint32_t peek = bs.peek();
+            const auto symbolbit = find(peek >> 16);
+            uint32_t codelen = symbolbit & 0xff;
+            if (codelen == 0 || codelen > 16)
+                njThrow(NJ_INTERNAL_ERR);
 
+            code = uint8_t(symbolbit >> 8);
+            uint32_t bits = code & 0xfU; // number of extra bits
 
+            peek <<= codelen; // remove the bits we just read from the peek buffer
 
-};
+            if (!bits)
+            {
+                bs.skip(codelen); // skip the bits we just read
+                return 0;
+            }
+
+            int bitvalue = (peek >> (32U - bits));
+            bs.skip(codelen + bits);
+
+            if (bitvalue < (1 << (bits - 1)))
+                bitvalue += ((-1) << bits) + 1;
+            return bitvalue;
+        }
+    };
 
     struct nj_component_t
     {
@@ -562,7 +399,7 @@ struct HuffCode
         int ncomp{};
         std::vector<nj_component_t> comp{};
         int qtused{}, qtavail{};
-        std::vector<std::array<int,64>> qtab{
+        std::vector<std::vector<int>> qtab{
             {128, 178, 178, 167, 246, 167, 151, 232,
              232, 151, 128, 209, 219, 209, 128, 101,
              178, 197, 197, 178, 101, 69, 139, 167,
@@ -597,12 +434,10 @@ struct HuffCode
              54, 35, 28, 37, 28, 19, 19, 10}};
 
         int rstinterval{};
-        std::vector<HuffCode> hufftab = std::vector(4, HuffCode{});
-        BitstreamContextBE bitstream{};
+        std::vector<HuffCode<4>>   huff_DC{};
+        std::vector<HuffCode<10>>  huff_AC{};
     };
     nj_context_t nj{};
-
-
 
     inline void njSkip(int count)
     {
@@ -660,7 +495,7 @@ struct HuffCode
         if (nj.length < (nj.ncomp * 3))
             njThrow(NJ_SYNTAX_ERROR);
         nj.comp.resize(nj.ncomp);
-        for (auto & c: nj.comp)
+        for (auto &c : nj.comp)
         {
             c.cid = nj.pos[0];
             if (!(c.ssx = nj.pos[1] >> 4))
@@ -702,9 +537,9 @@ struct HuffCode
         int dstw = nj.comp[0].width;
         int dsth = nj.comp[0].height;
 
-        for (int i=1; i < nj.ncomp; ++i)
+        for (int i = 1; i < nj.ncomp; ++i)
         {
-            auto& c=nj.comp[i];
+            auto &c = nj.comp[i];
             int srcw = c.width;
             int srch = c.height;
             while (srcw < dstw)
@@ -725,6 +560,8 @@ struct HuffCode
     inline void njDecodeDHT(void)
     {
         njDecodeLength();
+        nj.huff_DC.resize(2);
+        nj.huff_AC.resize(2);
 
         while (nj.length >= 17)
         {
@@ -733,17 +570,28 @@ struct HuffCode
                 njThrow(NJ_SYNTAX_ERROR);
             if (i & 0x02)
                 njThrow(NJ_UNSUPPORTED);
-            i = (i | (i >> 3)) & 3; // combined DC/AC + tableid value
+            int idx = i & 1;
+            bool is_AC = i & 0x10;
             njSkip(1);
-            const uint8_t* dht = nj.pos;
-            auto& hufftab=nj.hufftab[i];
-            hufftab.dht = dht;
-
-            auto task_index_DHT = std::async(std::launch::async, [&hufftab](){ return hufftab.build_index(); } );
-            hufftab.build_lockup();
-            njSkip(task_index_DHT.get());
-
-
+            const uint8_t *dht = nj.pos;
+            if (is_AC)
+            {
+                auto &tab = nj.huff_AC[idx];
+                if ( tab.dht )
+                   njThrow(NJ_SYNTAX_ERROR);
+                tab.dht = dht;
+                tab.build_lockup();
+                njSkip(tab.build_index());
+            }
+            else
+            {
+                auto &tab = nj.huff_DC[idx];
+                if ( tab.dht )
+                   njThrow(NJ_SYNTAX_ERROR);
+                tab.dht = dht;
+                tab.build_lockup();
+                njSkip(tab.build_index());
+            }
         }
         if (nj.length)
             njThrow(NJ_SYNTAX_ERROR);
@@ -776,59 +624,27 @@ struct HuffCode
         njSkip(nj.length);
     }
 
-
-
-    int njGetVLC(HuffCode &tree, int &code)
-    {
-        uint32_t peek = nj.bitstream.bits_peek_nz_be(32);
-        const auto symbolbit = tree.find(peek >> 16);
-        uint32_t codelen = symbolbit & 0xff;
-        uint32_t value = code = symbolbit >> 8U;
-        if (codelen == 0 || codelen > 16)
-            njThrow(NJ_INTERNAL_ERR);
-
-        peek <<= codelen; // remove the bits we just read from the peek buffer
-
-
-        uint32_t bits = value & 15U;
-
-        if (!bits) {
-            nj.bitstream.bits_skip_be(codelen);
-            return 0;
-        }
-
-        int bitvalue = ( peek >> (32U - bits) );
-        nj.bitstream.bits_skip_be(codelen + bits);  //nj.bitstream.bits_read_nz_be(bits);
-        if (bitvalue < (1 << (bits - 1)))
-            bitvalue += ((-1) << bits) + 1;
-        return bitvalue;
-    }
-
-    void njDecodeBlock(nj_component_t &c, uint8_t * out)
+    template <typename DCHuff, typename ACHuff, typename QTAB>
+    static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
     {
         float block[64]{};
-        auto &qtab = nj.qtab[c.qtsel];
-        auto &dc = nj.hufftab[c.dctabsel];
-        auto &ac = nj.hufftab[c.actabsel];
 
-        int code{};
+        uint8_t code{};
         // DC coef
-        int dcval = njGetVLC(dc, code);
-        c.dcpred += dcval;
+        dcpred += dc.njGetVLC(bs, code);
 
         static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
-                     11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
-                     42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
-                     38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
+                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
 
-
-        block[0] = (c.dcpred) * qtab[0] * float(1. / 1024.); // DC component scaling and quantization
+        block[0] = (dcpred)*qtab[0] * float(1. / 1024.); // DC component scaling and quantization
 
         int coef{0};
 
         do
         {
-            int value = njGetVLC(ac, code);
+            int value = ac.njGetVLC(bs, code);
             if (!code)
                 break; // EOB
             if (!(code & 0x0F) && (code != 0xF0))
@@ -838,9 +654,8 @@ struct HuffCode
             {
                 njThrow(NJ_SYNTAX_ERROR);
             }
-            block[ ZZ[coef]] = value * qtab[coef] * float(1. / 1024.); // DCT coefficients scaling and quantization
+            block[ZZ[coef]] = value * qtab[coef] * float(1. / 1024.); // DCT coefficients scaling and quantization
         } while (coef < 63);
-        const int stride = c.stride;
 
         if (coef)
         {
@@ -863,8 +678,8 @@ struct HuffCode
             idct8(block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62]);
             idct8(block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63]);
 
-            const float* blk = block;
-            for (; blk != block+64; out += stride - 8)
+            const float *blk = block;
+            for (; blk != block + 64; out += stride - 8)
             {
                 *out++ = njClip(*blk++ + 128.5f);
                 *out++ = njClip(*blk++ + 128.5f);
@@ -877,7 +692,7 @@ struct HuffCode
             }
         }
         else
-        {   //only DC component
+        { // only DC component
             auto value = njClip(block[0] + 128.5f);
 
             for (int i = 0; i < 8; ++i)
@@ -896,66 +711,72 @@ struct HuffCode
         if (nj.pos[0] != nj.ncomp)
             njThrow(NJ_UNSUPPORTED);
         njSkip(1);
-        for (auto & c : nj.comp)
+        for (auto &c : nj.comp)
         {
             if (nj.pos[0] != c.cid)
                 njThrow(NJ_SYNTAX_ERROR);
             if (nj.pos[1] & 0xEE)
                 njThrow(NJ_SYNTAX_ERROR);
-            c.dctabsel = nj.pos[1] >> 4;
-            c.actabsel = (nj.pos[1] & 1) | 2;
+            c.dctabsel = (nj.pos[1] >> 4) & 1;
+            c.actabsel = (nj.pos[1] & 1);
             njSkip(2);
         }
 
         if (nj.pos[0] || (nj.pos[1] != 63) || nj.pos[2])
             njThrow(NJ_UNSUPPORTED);
         njSkip(nj.length);
-        nj.bitstream.set_buffer(nj.pos, nj.size);
+        BitstreamContext bitstream{};
+        bitstream.set_buffer(nj.pos, nj.size);
         int rstcount = nj.rstinterval, nextrst = 0;
-        int mbx{0}, mby{0};
-        for (;;)
-        {
-            for (auto & c : nj.comp)
-            {
-                for (int sby = 0; sby < c.ssy; ++sby)
-                    for (int sbx = 0; sbx < c.ssx; ++sbx)
-                    {
-                        njDecodeBlock(c, c.pixels.data() +  (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
-                    }
-            }
 
-            if (++mbx >= nj.mbwidth)
+        for (int mby = 0; mby < nj.mbheight; ++mby)
+            for (int mbx = 0; mbx < nj.mbwidth; ++mbx)
             {
-                mbx = 0;
-                if (++mby >= nj.mbheight)
-                    break;
-            }
-            if (nj.rstinterval && !(--rstcount))
-            {
-                nj.bitstream.bits_priv_refill_32_be();
-                if (nj.bitstream.ptr != nj.bitstream.buffer_end)
-                    njThrow(NJ_SYNTAX_ERROR);
-                size_t size = nj.bitstream.ptr + 2  - nj.pos; // 2 bytes for RST marker
-                nj.pos += size; // skip RST marker
-                nj.size -= size; // skip RST marker
-                if (nj.size < 0)
-                    njThrow(NJ_SYNTAX_ERROR);
-                int code = njDecode16(nj.bitstream.ptr);
-                nj.bitstream.set_buffer(nj.pos, nj.size);
-                if (((code & 0xFFF8) != 0xFFD0))
+
+                for (auto &c : nj.comp)
                 {
-                    njThrow(NJ_SYNTAX_ERROR);
+                    const auto &ac = nj.huff_AC[c.actabsel]; // AC table
+                    const auto &dc = nj.huff_DC[c.dctabsel]; // DC table
+                    const auto &qtab = nj.qtab[c.qtsel];     // quantization table
+
+                    for (int sby = 0; sby < c.ssy; ++sby)
+                        for (int sbx = 0; sbx < c.ssx; ++sbx)
+                        {
+                            njDecodeBlock(dc, ac, qtab, c.dcpred, bitstream, c.stride, c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
+                        }
                 }
-                if ((code & 7) != nextrst)
-                    njThrow(NJ_SYNTAX_ERROR);
-                nextrst = (nextrst + 1) & 7;
-                rstcount = nj.rstinterval;
-                for (auto & c : nj.comp) c.dcpred = 0; // reset DC prediction to 0
+                if (nj.rstinterval && !(--rstcount))
+                {
+
+                    bitstream.refill();
+
+                    size_t size = bitstream.ptr + 2 - nj.pos; // 2 bytes for RST marker
+                    nj.pos += size;                           // skip RST marker
+                    nj.size -= size;                          // skip RST marker
+                    if (nj.size < 0)
+                        njThrow(NJ_SYNTAX_ERROR);
+                    int code = njDecode16(bitstream.ptr);
+                    if (code == 0xFFD9)
+                        return; // end of image
+                    bitstream.set_buffer(nj.pos, nj.size);
+                    if (((code & 0xFFF8) != 0xFFD0))
+                    {
+                        njThrow(NJ_SYNTAX_ERROR);
+                    }
+                    if ((code & 7) != nextrst)
+                        njThrow(NJ_SYNTAX_ERROR);
+                    nextrst = (nextrst + 1) & 7;
+                    rstcount = nj.rstinterval;
+                    for (auto &c : nj.comp)
+                        c.dcpred = 0; // reset DC prediction to 0
+                }
             }
-        }
-        size_t size = nj.bitstream.ptr - nj.pos; // 2 bytes for RST marker
-        nj.pos += size; // skip RST marker
-        nj.size -= size; // skip RST marker
+        bitstream.refill();                   // refill buffer to make sure we have enough bits to read the last marker
+        size_t size = bitstream.ptr - nj.pos; // 2 bytes for RST marker
+        nj.pos += size;                       // skip RST marker
+        nj.size -= size;                      // skip RST marker
+        if (njDecode16(nj.pos) == 0xFFD9)
+            nj.pos += 2; // skip EOI marker
     }
 
     void njDecode(const uint8_t *jpeg, const int size)
@@ -995,12 +816,6 @@ struct HuffCode
                 break;
             case 0xDA:
                 njDecodeScan();
-                //if ( njDecode16(nj.pos) != 0xFFD9) njThrow(NJ_SYNTAX_ERROR);
-                //std::cout << std::hex << njDecode16(nj.pos) << std::endl; // 0xFFD9
-                // for (auto & tree : nj.hufftab)
-                // {
-                //     tree.fast_future.get(); // wait for all threads to finish
-                // }
                 return;
             case 0xFE:
                 njSkipMarker();

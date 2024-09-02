@@ -176,7 +176,7 @@ int main(int argc, char ** argv) {
     }
     StopWatch decode_time, convert_time;
 
-    int times = std::max( std::ceil( 1024*1024*64.0 / mmap.size() ), 10.);
+    int times = std::max( std::ceil( 1024*1024*100.0 / mmap.size() ), 60.);
     std::cout << "bencmarking turbo" << std::endl;
     decode_time.start();
     for (int i = 0; i < times; i++)
