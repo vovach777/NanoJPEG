@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <tuple>
 #include "nanojpeg.hpp"
 #include "mio.hpp"
 #include <algorithm>
@@ -32,11 +33,10 @@ constexpr inline void YCbCr_to_RGB(int y, int cb, int cr,  T& r_, T& g_, T& b_)
 }
 
 
-template <int planes_nb,typename YUV_, typename RGB_, typename COMP>
-inline void convert(YUV_ && yuv, RGB_ && rgb, COMP && comp) {
 
-    int width = comp[0].width;
-    int height = comp[0].height;
+template <bool is_ycck, int planes_nb,typename YUV_, typename RGB_, typename COMP>
+inline void convert(YUV_ && yuv, RGB_ && rgb, COMP && comp, int width, int height) {
+
     for (int h=0; h < height; ++h)
     for (int x=0; x < width;  ++x)
     {
@@ -45,18 +45,54 @@ inline void convert(YUV_ && yuv, RGB_ && rgb, COMP && comp) {
         } else
         if constexpr (planes_nb == 2) {
            rgb(x,h, std::clamp( yuv(0,x,h), 0,255), std::clamp( yuv(1,x,h), 0, 255));
-        } else {
+        } else
+        if constexpr (planes_nb == 3) {
             auto y = yuv(0,x,h);
             auto u = yuv(1,x >> comp[1].chroma_w_log2, h >> comp[1].chroma_h_log2);
             auto v = yuv(2,x >> comp[2].chroma_w_log2, h >> comp[2].chroma_h_log2);
             int r,g,b;
             YCbCr_to_RGB(y,u,v, r,g,b);
-            if constexpr (planes_nb == 4)
-                rgb(x,h,r,g,b,std::clamp( yuv(3,x,h), 0,255));
-            else
+            rgb(x,h,r,g,b);
+        } else {
+            const auto c =  yuv(0,x >> comp[0].chroma_w_log2, h >> comp[0].chroma_h_log2);
+            const auto m = yuv(1,x >> comp[1].chroma_w_log2, h >> comp[1].chroma_h_log2);
+            const auto y = yuv(2,x >> comp[2].chroma_w_log2, h >> comp[2].chroma_h_log2);
+            const auto k =  yuv(3,x >> comp[3].chroma_w_log2, h >> comp[3].chroma_h_log2);
+            if constexpr (is_ycck) {
+                int ir,ig,ib;
+                YCbCr_to_RGB(c,m,y, ir,ig,ib);
+                const auto r = nanojpeg::njClip( (255-ir)*k/255 );
+                const auto g = nanojpeg::njClip( (255-ig)*k/255 );
+                const auto b = nanojpeg::njClip( (255-ib)*k/255 );
                 rgb(x,h,r,g,b);
+            } else {
+                const auto r = nanojpeg::njClip( c*k/255 );
+                const auto g = nanojpeg::njClip( m*k/255 );
+                const auto b = nanojpeg::njClip( y*k/255 );
+                rgb(x,h,r,g,b);
+            }
         }
     }
+}
+
+template <typename YUV_, typename RGB_>
+inline void convert(nanojpeg::nj_result &image,  YUV_ && yuv, RGB_ && rgb)
+{
+    switch ( image.components.size() )
+    {
+        case 1: convert<false,1>( std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components,image.width,image.height); break;
+        case 2: convert<false,2>( std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components,image.width,image.height); break;
+        case 3: convert<false,3>( std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components,image.width,image.height); break;
+        case 4: if (image.is_ycck)
+                    convert<true,4>( std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components,image.width,image.height);
+                else
+                    convert<false,4>( std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components,image.width,image.height);
+                break;
+        default:
+            throw std::runtime_error("invalid number of planes");
+    }
+
+
 }
 
 
@@ -64,27 +100,37 @@ inline void convert(YUV_ && yuv, RGB_ && rgb, COMP && comp) {
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
-
+#include <optional>
 namespace profiling {
 using std::chrono::duration;
 using std::chrono::duration_cast;
 using std::chrono::high_resolution_clock;
 
 struct StopWatch {
-  high_resolution_clock::time_point start_point{};
-  high_resolution_clock::time_point end_point{};
+  std::optional<high_resolution_clock::time_point> start_point{};
+  double elipsed_total{};
 
-  void start() {
-    start_point = high_resolution_clock::now();
+  inline void startnew() {
+    elipsed_total = 0.0;
+    start();
   }
 
-  auto elipsed() const {
+  inline void start() {
+   if ( !start_point )
+        start_point = high_resolution_clock::now();
+  }
 
-    return  end_point < start_point ? duration<double>(high_resolution_clock::now() - start_point).count() :  duration<double>(end_point - start_point).count();
+  inline bool is_running() const { return start_point.has_value(); }
+
+  inline double elipsed() const {
+    return elipsed_total + ( (start_point) ?  duration<double>(high_resolution_clock::now() - *start_point).count() : 0 );
 
   }
-  auto stop() {
-      end_point = high_resolution_clock::now();
+  void stop() {
+    if ( start_point ) {
+        elipsed_total += duration<double>(high_resolution_clock::now() - *start_point).count();
+        start_point.reset();
+    }
 
   }
   std::string elipsed_str() const {
@@ -149,8 +195,8 @@ void jpeg_turbo_bench(const uint8_t * buf, size_t size ) {
 }
 
 void nanojpeg_bench(const uint8_t * buf, size_t size ) {
-    NanoJpeg decoder;
-    decoder.njDecode(buf, size);
+
+    (void)nanojpeg::decode(buf, size);
 }
 
 
@@ -174,60 +220,67 @@ int main(int argc, char ** argv) {
     {
         throw std::runtime_error(error.message());
     }
-    StopWatch decode_time, convert_time;
+    StopWatch njtime{}, tjtime{}, convert_time{};
 
     int times = std::max( std::ceil( 1024*1024*100.0 / mmap.size() ), 60.);
-    std::cout << "bencmarking turbo" << std::endl;
-    decode_time.start();
-    for (int i = 0; i < times; i++)
-    {
-        jpeg_turbo_bench(mmap.data(),mmap.size());
+    std::cout << "benchmarking" << std::flush;
+
+    bool turbo_ok = true;
+    try {
+    jpeg_turbo_bench(mmap.data(),mmap.size());
+    } catch(std::exception & e) {
+        std::cout << "turbojpeg failed: " << e.what() << std::endl;
+        turbo_ok = false;
     }
-    decode_time.stop();
-    std::cout << "bencmarking nano" << std::endl;
 
-    auto turbo_elipsed = decode_time.elipsed();
-
-
-    decode_time.start();
     for (int i = 0; i < times; i++)
     {
+        njtime.start();
         nanojpeg_bench(mmap.data(),mmap.size());
+        njtime.stop();
+        if ( turbo_ok ) {
+            tjtime.start();
+            jpeg_turbo_bench(mmap.data(),mmap.size());
+            tjtime.stop();
+        }
+        if (i % 50 == 0) std::cout << "." << std::flush;
     }
-    decode_time.stop();
+    std::cout << std::endl;
 
 
-    auto elipsed = decode_time.elipsed();
-
-    NanoJpeg decoder;
-    decoder.njDecode(mmap.data(),mmap.size());
-
-    auto imgMPixSize = decoder.njGetWidth() * decoder.njGetHeight() *  1e-6;
 
 
-    std::cout << "image  = " << decoder.njGetWidth() << "x" << decoder.njGetHeight() << " (" << std::fixed << std::setprecision(3) << imgMPixSize << " MPix)" << std::endl;
-    print_stat("jpeg-turbo",turbo_elipsed,imgMPixSize,mmap.size(), times);
-    print_stat("nanojpeg",elipsed,imgMPixSize,mmap.size(), times);
-    std::cout << "ratio = " << std::fixed << std::setprecision(2) << (turbo_elipsed / elipsed) << "x" << std::endl;
+
+    auto image = nanojpeg::decode(mmap.data(),mmap.size());
+
+    auto imgMPixSize = image.width * image.height *  1e-6;
+
+
+    std::cout << "image  = " << image.width << "x" << image.height << " (" << std::fixed << std::setprecision(3) << imgMPixSize << " MPix)" << std::endl;
+    if (turbo_ok)
+        print_stat("jpeg-turbo",tjtime.elipsed(),imgMPixSize,mmap.size(), times);
+    print_stat("nanojpeg",njtime.elipsed(),imgMPixSize,mmap.size(), times);
+    if (turbo_ok)
+        std::cout << "ratio = " << std::fixed << std::setprecision(3) << (tjtime.elipsed() / njtime.elipsed()) << "x" << std::endl;
 
     auto out_filename = std::string( argv[1] ) + ".bmp";
-    auto& comp = decoder.njGetComponents();
-    if (comp.size() == 3) {
-        std::cout << "3 components" << std::endl;
-        std::vector<uint8_t> rgb( comp[0].width * comp[0].height * 3);
+
+
+
+        std::cout << image.components.size() << " components" << std::endl;
+        int comp_nb = std::min<int>(3, image.components.size());
+        std::vector<uint8_t> rgb( image.width * image.height * comp_nb);
         convert_time.start();
-         convert<3>([&comp](int comp_n, int x, int y ) {
+         convert(image, [&comp=image.components](int comp_n, int x, int y ) {
             return (int)comp[comp_n].pixels[y*comp[comp_n].stride+x];
-         },[width=comp[0].width,&rgb](int x, int y, auto r, auto g, auto b){
-            auto pos =   rgb.begin()  + (y * width + x)*3;
-            *pos++ = r;
-            *pos++ = g;
-            *pos++ = b;
-         }, comp);
+         },[&image,&rgb](int x, int y, auto&&... args){
+            auto pos =   rgb.begin()  + (y * image.width + x)* sizeof...(args);
+            ( (*pos++ = args), ...);
+         });
          convert_time.stop();
          std::cout << "yuv to rgb time = " << convert_time.elipsed_str() << std::endl;
-        stbi_write_bmp( out_filename.c_str(),decoder.njGetWidth(), decoder.njGetHeight(), 3, rgb.data() );
-    }
+        stbi_write_bmp( out_filename.c_str(),image.width, image.height, comp_nb, rgb.data() );
+
  } catch(const std::exception & e) {
     std::cerr << e.what() << std::endl;
     return 1;

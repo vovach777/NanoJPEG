@@ -11,9 +11,10 @@ add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
 
 
-target_compile_options(nanojpeg PRIVATE -march=native -mtune=native)
-if(CMAKE_BUILD_TYPE MATCHES "Release")
-    target_compile_options(nanojpeg PRIVATE -mfpmath=sse -msse4.1 -msse4.2 -mavx  -flto -ffast-math)
+target_compile_options(nanojpeg PRIVATE -march=ivybridge -mtune=ivybridge)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(nanojpeg PRIVATE -Ofast -mfpmath=sse -flto)
 endif()
 
 find_package(Stb REQUIRED)
