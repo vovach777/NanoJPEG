@@ -75,7 +75,7 @@ inline int __builtin_clz(unsigned long mask)
         return 32;
     int where = 31;
     while ((mask & (1UL << where)) == 0)
-        result--;
+        where--;
     return 32 - where;
 }
 #endif
