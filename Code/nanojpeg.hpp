@@ -87,27 +87,6 @@ inline int leading_ones(int peek)
     return __builtin_clz(~(peek << 16));
 }
 
-// njDecode: Decode a JPEG image.
-// Decodes a memory dump of a JPEG file into internal buffers.
-// Parameters:
-//   jpeg = The pointer to the memory dump.
-//   size = The size of the JPEG file.
-// throw exeption if error occurs
-
-// njGetWidth: Return the width (in pixels) of the most recently decoded
-// image. If njDecode() failed, the result of njGetWidth() is undefined.
-
-// njGetHeight: Return the height (in pixels) of the most recently decoded
-// image. If njDecode() failed, the result of njGetHeight() is undefined.
-
-// njIsColor: Return 1 if the most recently decoded image is a color image
-// (RGB) or 0 if it is a grayscale image. If njDecode() failed, the result
-// of njGetWidth() is undefined.
-
-// njGetComponents: Returns the decoded components. No colorspace coversion.
-// Returns a reference to componets. Move object if you want to keep it before
-// calling njDecode again. If njDecode() failed, the result of njGetComponents() is undefined.
-
 inline uint8_t njClip(int x)
 {
     //return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
@@ -660,7 +639,7 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
     template <typename DCHuff, typename ACHuff, typename QTAB>
     static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
     {
-        alignas(16) float block[64]{};
+        alignas(32) float block[64]{};
 
         uint8_t code{};
         // DC coef
@@ -691,24 +670,12 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
 
         if (coef)
         {
-
-            idct8(block[0], block[1], block[2], block[3], block[4], block[5], block[6], block[7]);
-            idct8(block[8], block[9], block[10], block[11], block[12], block[13], block[14], block[15]);
-            idct8(block[16], block[17], block[18], block[19], block[20], block[21], block[22], block[23]);
-            idct8(block[24], block[25], block[26], block[27], block[28], block[29], block[30], block[31]);
-            idct8(block[32], block[33], block[34], block[35], block[36], block[37], block[38], block[39]);
-            idct8(block[40], block[41], block[42], block[43], block[44], block[45], block[46], block[47]);
-            idct8(block[48], block[49], block[50], block[51], block[52], block[53], block[54], block[55]);
-            idct8(block[56], block[57], block[58], block[59], block[60], block[61], block[62], block[63]);
-
-            idct8(block[0], block[8], block[16], block[24], block[32], block[40], block[48], block[56]);
-            idct8(block[1], block[9], block[17], block[25], block[33], block[41], block[49], block[57]);
-            idct8(block[2], block[10], block[18], block[26], block[34], block[42], block[50], block[58]);
-            idct8(block[3], block[11], block[19], block[27], block[35], block[43], block[51], block[59]);
-            idct8(block[4], block[12], block[20], block[28], block[36], block[44], block[52], block[60]);
-            idct8(block[5], block[13], block[21], block[29], block[37], block[45], block[53], block[61]);
-            idct8(block[6], block[14], block[22], block[30], block[38], block[46], block[54], block[62]);
-            idct8(block[7], block[15], block[23], block[31], block[39], block[47], block[55], block[63]);
+            for (int i=0; i<64; i+=8)
+                idct8(block[i+0], block[i+1], block[i+2], block[i+3], block[i+4], block[i+5], block[i+6], block[i+7]);
+ 
+            for(int i=0;i<8;++i)
+                idct8(block[i], block[i+8], block[i+16], block[i+24], block[i+32], block[i+40], block[i+48], block[i+56]);
+     
 
             const float *blk = block;
             for (; blk != block + 64; out += stride - 8)
