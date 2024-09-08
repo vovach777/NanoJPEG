@@ -271,11 +271,12 @@ int main(int argc, char ** argv) {
         int comp_nb = std::min<int>(3, image.components.size());
         std::vector<uint8_t> rgb( image.width * image.height * comp_nb);
         convert_time.start();
+        auto rgb_out = rgb.data();
          convert(image, [&comp=image.components](int comp_n, int x, int y ) {
             return (int)comp[comp_n].pixels[y*comp[comp_n].stride+x];
-         },[&image,&rgb](int x, int y, auto&&... args){
-            auto pos =   rgb.begin()  + (y * image.width + x)* sizeof...(args);
-            ( (*pos++ = args), ...);
+         },[&rgb_out](int x, int y, auto&&... args){
+           
+            ( (*rgb_out++ = args), ...);
          });
          convert_time.stop();
          std::cout << "yuv to rgb time = " << convert_time.elipsed_str() << std::endl;
