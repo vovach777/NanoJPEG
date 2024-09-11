@@ -286,7 +286,7 @@ int main(int argc, char **argv)
         }
         StopWatch njtime{}, tjtime{}, tjtime_fast{}, convert_time{};
 
-        int times = std::min(1000., std::ceil(1024 * 1024 * 256.0 / mmap.size()));
+        int times = std::min(1000., std::ceil(1024 * 1024 * 150.0 / mmap.size()));
 
         bool turbo_ok = true;
         try

@@ -99,19 +99,14 @@ namespace nanojpeg
         return (pos[0] << 8) | pos[1];
     }
 
-    inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &s5, float &s6, float &s7)
+    inline void idct8(const float *s, float *d)
     {
-        // if (s1 == 0 && s2 == 0 && s3 == 0 && s4 == 0 && s5 == 0 && s6 == 0 && s7 == 0)
-        // {
-        //     s1 = s2 = s3 = s4 = s5 = s6 = s7 = s0;
-        //     return;
-        // }
         /* Even part */
 
-        float tmp0 = s0;
-        float tmp1 = s2;
-        float tmp2 = s4;
-        float tmp3 = s6;
+        float tmp0 = s[0];
+        float tmp1 = s[2];
+        float tmp2 = s[4];
+        float tmp3 = s[6];
 
         float tmp10 = tmp0 + tmp2; /* phase 3 */
         float tmp11 = tmp0 - tmp2;
@@ -126,10 +121,10 @@ namespace nanojpeg
 
         /* Odd part */
 
-        float tmp4 = s1;
-        float tmp5 = s3;
-        float tmp6 = s5;
-        float tmp7 = s7;
+        float tmp4 = s[1];
+        float tmp5 = s[3];
+        float tmp6 = s[5];
+        float tmp7 = s[7];
 
         float z13 = tmp6 + tmp5; /* phase 6 */
         float z10 = tmp6 - tmp5;
@@ -146,14 +141,14 @@ namespace nanojpeg
         tmp6 = tmp12 - tmp7; /* phase 2 */
         tmp5 = tmp11 - tmp6;
         tmp4 = tmp10 - tmp5;
-        s0 = (tmp0 + tmp7);
-        s1 = (tmp1 + tmp6);
-        s2 = (tmp2 + tmp5);
-        s3 = (tmp3 + tmp4);
-        s4 = (tmp3 - tmp4);
-        s5 = (tmp2 - tmp5);
-        s6 = (tmp1 - tmp6);
-        s7 = (tmp0 - tmp7);
+        d[0 * 8] = (tmp0 + tmp7);
+        d[1 * 8] = (tmp1 + tmp6);
+        d[2 * 8] = (tmp2 + tmp5);
+        d[3 * 8] = (tmp3 + tmp4);
+        d[4 * 8] = (tmp3 - tmp4);
+        d[5 * 8] = (tmp2 - tmp5);
+        d[6 * 8] = (tmp1 - tmp6);
+        d[7 * 8] = (tmp0 - tmp7);
     }
 
     struct BitstreamContext
@@ -656,7 +651,8 @@ namespace nanojpeg
         template <typename DCHuff, typename ACHuff, typename QTAB>
         static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
         {
-            alignas(32) float block[64]{};
+            alignas(16) float block[64]{};
+            alignas(16) float block_col[64];
 
             uint8_t code{};
             // DC coef
@@ -687,11 +683,11 @@ namespace nanojpeg
 
             if (coef)
             {
-                for (int i = 0; i < 64; i += 8)
-                    idct8(block[i + 0], block[i + 1], block[i + 2], block[i + 3], block[i + 4], block[i + 5], block[i + 6], block[i + 7]);
+                for (int i = 0, j = 0; i < 64; i += 8, ++j)
+                    idct8(block + i, block_col + j);
 
-                for (int i = 0; i < 8; ++i)
-                    idct8(block[i], block[i + 8], block[i + 16], block[i + 24], block[i + 32], block[i + 40], block[i + 48], block[i + 56]);
+                for (int i = 0, j = 0; i < 64; i += 8, ++j)
+                    idct8(block_col + i, block + j);
 
                 const float *blk = block;
                 for (; blk != block + 64; out += stride - 8)
