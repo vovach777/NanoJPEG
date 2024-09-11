@@ -1,3 +1,10 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/Code"
+    "cmake.sourceDirectory": "${workspaceFolder}/Code",
+    "cmake.options.statusBarVisibility": "visible",
+    "cmake.debugConfig": {
+        "args": [
+            "kodim23.jpg"
+        ]
+    },
+    "git.scanRepositories": ["${workspaceFolder}"]
 }

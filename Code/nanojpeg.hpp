@@ -36,18 +36,19 @@
 #include <limits>
 #include <memory>
 
-namespace nanojpeg {
+namespace nanojpeg
+{
 #define NJ_NO_JPEG "NJ_NO_JPEG"           // not a JPEG file
 #define NJ_UNSUPPORTED "NJ_UNSUPPORTED"   // unsupported format
 #define NJ_OUT_OF_MEM "NJ_OUT_OF_MEM"     // out of memory
 #define NJ_INTERNAL_ERR "NJ_INTERNAL_ERR" // internal error
 #define NJ_SYNTAX_ERROR "NJ_SYNTAX_ERROR" // syntax error
 
-template <typename STR>
-[[noreturn]] inline void njThrow(STR &&e)
-{
-    throw std::domain_error(std::forward<STR>(e));
-}
+    template <typename STR>
+    [[noreturn]] inline void njThrow(STR &&e)
+    {
+        throw std::domain_error(std::forward<STR>(e));
+    }
 
 #ifndef HAS_BUILTIN_CLZ
 #if defined(__has_builtin)
@@ -58,102 +59,102 @@ template <typename STR>
 #if defined(_MSC_VER)
 #include <intrin.h>
 #pragma intrinsic(_BitScanReverse)
-inline int __builtin_clz(unsigned long mask)
-{
-    unsigned long where;
-    // Search from LSB to MSB for first set bit.
-    // Returns zero if no set bit is found.
-    if (_BitScanReverse(&where, mask))
-        return static_cast<int>(31 - where);
-    return 32; // Undefined Behavior.
-}
+    inline int __builtin_clz(unsigned long mask)
+    {
+        unsigned long where;
+        // Search from LSB to MSB for first set bit.
+        // Returns zero if no set bit is found.
+        if (_BitScanReverse(&where, mask))
+            return static_cast<int>(31 - where);
+        return 32; // Undefined Behavior.
+    }
 #define HAS_BUILTIN_CLZ
 #else
-inline int __builtin_clz(unsigned long mask)
-{
-    if (mask == 0)
-        return 32;
-    int where = 31;
-    while ((mask & (1UL << where)) == 0)
-        where--;
-    return 32 - where;
-}
+    inline int __builtin_clz(unsigned long mask)
+    {
+        if (mask == 0)
+            return 32;
+        int where = 31;
+        while ((mask & (1UL << where)) == 0)
+            where--;
+        return 32 - where;
+    }
 #endif
 #endif
 #endif
 
-inline int leading_ones(int peek)
-{
-    return __builtin_clz(~(peek << 16));
-}
+    inline int leading_ones(int peek)
+    {
+        return __builtin_clz(~(peek << 16));
+    }
 
-inline uint8_t njClip(int x)
-{
-    //return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
-    return std::clamp(x, 0, 0xFF);
-}
+    inline uint8_t njClip(int x)
+    {
+        // return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
+        return std::clamp(x, 0, 0xFF);
+    }
 
-inline int njDecode16(const uint8_t *pos)
-{
-    return (pos[0] << 8) | pos[1];
-}
+    inline int njDecode16(const uint8_t *pos)
+    {
+        return (pos[0] << 8) | pos[1];
+    }
 
-inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &s5, float &s6, float &s7)
-{
-    // if (s1 == 0 && s2 == 0 && s3 == 0 && s4 == 0 && s5 == 0 && s6 == 0 && s7 == 0)
-    // {
-    //     s1 = s2 = s3 = s4 = s5 = s6 = s7 = s0;
-    //     return;
-    // }
-    /* Even part */
+    inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &s5, float &s6, float &s7)
+    {
+        // if (s1 == 0 && s2 == 0 && s3 == 0 && s4 == 0 && s5 == 0 && s6 == 0 && s7 == 0)
+        // {
+        //     s1 = s2 = s3 = s4 = s5 = s6 = s7 = s0;
+        //     return;
+        // }
+        /* Even part */
 
-    float tmp0 = s0;
-    float tmp1 = s2;
-    float tmp2 = s4;
-    float tmp3 = s6;
+        float tmp0 = s0;
+        float tmp1 = s2;
+        float tmp2 = s4;
+        float tmp3 = s6;
 
-    float tmp10 = tmp0 + tmp2; /* phase 3 */
-    float tmp11 = tmp0 - tmp2;
+        float tmp10 = tmp0 + tmp2; /* phase 3 */
+        float tmp11 = tmp0 - tmp2;
 
-    float tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
-    float tmp12 = (tmp1 - tmp3) * float(1.414213562) - tmp13; /* 2*c4 */
+        float tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
+        float tmp12 = (tmp1 - tmp3) * float(1.414213562) - tmp13; /* 2*c4 */
 
-    tmp0 = tmp10 + tmp13; /* phase 2 */
-    tmp3 = tmp10 - tmp13;
-    tmp1 = tmp11 + tmp12;
-    tmp2 = tmp11 - tmp12;
+        tmp0 = tmp10 + tmp13; /* phase 2 */
+        tmp3 = tmp10 - tmp13;
+        tmp1 = tmp11 + tmp12;
+        tmp2 = tmp11 - tmp12;
 
-    /* Odd part */
+        /* Odd part */
 
-    float tmp4 = s1;
-    float tmp5 = s3;
-    float tmp6 = s5;
-    float tmp7 = s7;
+        float tmp4 = s1;
+        float tmp5 = s3;
+        float tmp6 = s5;
+        float tmp7 = s7;
 
-    float z13 = tmp6 + tmp5; /* phase 6 */
-    float z10 = tmp6 - tmp5;
-    float z11 = tmp4 + tmp7;
-    float z12 = tmp4 - tmp7;
+        float z13 = tmp6 + tmp5; /* phase 6 */
+        float z10 = tmp6 - tmp5;
+        float z11 = tmp4 + tmp7;
+        float z12 = tmp4 - tmp7;
 
-    tmp7 = z11 + z13;                         /* phase 5 */
-    tmp11 = (z11 - z13) * float(1.414213562); /* 2*c4 */
+        tmp7 = z11 + z13;                         /* phase 5 */
+        tmp11 = (z11 - z13) * float(1.414213562); /* 2*c4 */
 
-    float z5 = (z10 + z12) * float(1.847759065); /* 2*c2 */
-    tmp10 = z5 - z12 * float(1.082392200);       /* 2*(c2-c6) */
-    tmp12 = z5 - z10 * float(2.613125930);       /* 2*(c2+c6) */
+        float z5 = (z10 + z12) * float(1.847759065); /* 2*c2 */
+        tmp10 = z5 - z12 * float(1.082392200);       /* 2*(c2-c6) */
+        tmp12 = z5 - z10 * float(2.613125930);       /* 2*(c2+c6) */
 
-    tmp6 = tmp12 - tmp7; /* phase 2 */
-    tmp5 = tmp11 - tmp6;
-    tmp4 = tmp10 - tmp5;
-    s0 = (tmp0 + tmp7);
-    s1 = (tmp1 + tmp6);
-    s2 = (tmp2 + tmp5);
-    s3 = (tmp3 + tmp4);
-    s4 = (tmp3 - tmp4);
-    s5 = (tmp2 - tmp5);
-    s6 = (tmp1 - tmp6);
-    s7 = (tmp0 - tmp7);
-}
+        tmp6 = tmp12 - tmp7; /* phase 2 */
+        tmp5 = tmp11 - tmp6;
+        tmp4 = tmp10 - tmp5;
+        s0 = (tmp0 + tmp7);
+        s1 = (tmp1 + tmp6);
+        s2 = (tmp2 + tmp5);
+        s3 = (tmp3 + tmp4);
+        s4 = (tmp3 - tmp4);
+        s5 = (tmp2 - tmp5);
+        s6 = (tmp1 - tmp6);
+        s7 = (tmp0 - tmp7);
+    }
 
     struct BitstreamContext
     {
@@ -298,7 +299,7 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
 
             while (ones_pos < 17)
             {
-                bitseek[ones_pos++] = std::min(0xff,ones_seek); // fill up the bitseek table
+                bitseek[ones_pos++] = std::min(0xff, ones_seek); // fill up the bitseek table
             }
             return dht_size;
         }
@@ -369,6 +370,7 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
         int qtsel{};
         int actabsel{}, dctabsel{};
         int dcpred{};
+        int size{};
         std::vector<uint8_t> pixels{};
     };
 
@@ -383,405 +385,421 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
         int ncomp{};
         std::vector<nj_component_t> comp{};
         int qtused{}, qtavail{};
-        std::vector<std::array<float,64>> qtab{};
+        std::vector<std::array<float, 64>> qtab{};
         int rstinterval{};
-        std::vector<HuffCode<4>>  huff_DC{};
-        std::vector<HuffCode<8>>  huff_AC{};
+        std::vector<HuffCode<4>> huff_DC{};
+        std::vector<HuffCode<8>> huff_AC{};
         bool is_ycck{false}; // YCCK color space
+
+        inline void allocate_pixels()
+        {
+            for (auto &c : comp)
+            {
+                c.pixels.resize(c.size);
+            }
+        }
 
         inline void Decode()
         {
-        if (size < 2)
-            njThrow(NJ_NO_JPEG);
-        if (njDecode16(pos) != 0xFFD8)
-            njThrow(NJ_NO_JPEG);
-        Skip(2);
-        while (1)
+            if (size < 2)
+                njThrow(NJ_NO_JPEG);
+            if (njDecode16(pos) != 0xFFD8)
+                njThrow(NJ_NO_JPEG);
+            Skip(2);
+            while (1)
+            {
+
+                if ((size < 2) || (pos[0] != 0xFF))
+                {
+                    njThrow(NJ_SYNTAX_ERROR);
+                }
+                Skip(2);
+                switch (pos[-1])
+                {
+                // case 0xD9:
+                //     return;
+                case 0xC0:
+                    DecodeSOF<false, true>();
+                    break;
+                case 0xC4:
+                    DecodeDHT();
+                    break;
+                case 0xDB:
+                    DecodeDQT();
+                    break;
+                case 0xDD:
+                    DecodeDRI();
+                    break;
+                case 0xDA:
+                    DecodeScan();
+                    return;
+                case 0xFE:
+                    SkipMarker();
+                    break;
+                case 0xEE:
+                    DecodeLength();
+                    if (length == 12)
+                    {
+                        is_ycck = pos[11] == 2;
+                    }
+                    Skip(length);
+
+                    break;
+                default:
+                    if ((pos[-1] & 0xF0) == 0xE0)
+                        SkipMarker();
+                    else
+                        njThrow(NJ_UNSUPPORTED);
+                }
+            }
+        }
+
+        inline void Skip(int count)
         {
 
-            if ((size < 2) || (pos[0] != 0xFF))
-            {
+            pos += count;
+            size -= count;
+            length -= count;
+            if (size < 0)
                 njThrow(NJ_SYNTAX_ERROR);
-            }
-            Skip(2);
-            switch (pos[-1])
-            {
-            // case 0xD9:
-            //     return;
-            case 0xC0:
-                DecodeSOF();
-                break;
-            case 0xC4:
-                DecodeDHT();
-                break;
-            case 0xDB:
-                DecodeDQT();
-                break;
-            case 0xDD:
-                DecodeDRI();
-                break;
-            case 0xDA:
-                DecodeScan();
-                return;
-            case 0xFE:
-                SkipMarker();
-                break;
-            case 0xEE:
-                DecodeLength();
-                if (length == 12 )
-                {
-                   is_ycck = pos[11] == 2;
-                }
-                Skip(length);
+        }
 
+        inline void DecodeLength(void)
+        {
+            if (size < 2)
+                njThrow(NJ_SYNTAX_ERROR);
+            length = njDecode16(pos);
+            if (length > size)
+                njThrow(NJ_SYNTAX_ERROR);
+            Skip(2);
+        }
+
+        inline void SkipMarker(void)
+        {
+            DecodeLength();
+            Skip(length);
+        }
+
+        template <bool search_sof, bool allocate_memory>
+        inline void DecodeSOF(void)
+        {
+            if constexpr (search_sof)
+            {
+                auto sequence = {0xff, 0xc0};
+                auto newpos = std::search(pos, pos + size, sequence.begin(), sequence.end());
+                Skip(newpos - pos + 2);
+                if (size < 2)
+                    njThrow(NJ_SYNTAX_ERROR);
+            }
+            int i, ssxmax = 0, ssymax = 0;
+            DecodeLength();
+            if (length < 9)
+                njThrow(NJ_SYNTAX_ERROR);
+            if (pos[0] != 8)
+                njThrow(NJ_UNSUPPORTED);
+            height = njDecode16(pos + 1);
+            width = njDecode16(pos + 3);
+            if (!width || !height)
+                njThrow(NJ_SYNTAX_ERROR);
+            ncomp = pos[5];
+            Skip(6);
+            switch (ncomp)
+            {
+            case 1:
+            case 3:
+            case 4: // grayscale, YCbCr, CMYK
                 break;
             default:
-                if ((pos[-1] & 0xF0) == 0xE0)
-                    SkipMarker();
-                else
+                njThrow(NJ_UNSUPPORTED);
+            }
+            if (length < (ncomp * 3))
+                njThrow(NJ_SYNTAX_ERROR);
+            comp.resize(ncomp);
+            for (auto &c : comp)
+            {
+                c.cid = pos[0];
+                if (!(c.ssx = pos[1] >> 4))
+                    njThrow(NJ_SYNTAX_ERROR);
+                if (c.ssx & (c.ssx - 1))
+                    njThrow(NJ_UNSUPPORTED); // non-power of two
+                if (!(c.ssy = pos[1] & 15))
+                    njThrow(NJ_SYNTAX_ERROR);
+                if (c.ssy & (c.ssy - 1))
+                    njThrow(NJ_UNSUPPORTED); // non-power of two
+                if ((c.qtsel = pos[2]) & 0xFC)
+                    njThrow(NJ_SYNTAX_ERROR);
+                Skip(3);
+                qtused |= 1 << c.qtsel;
+                if (c.ssx > ssxmax)
+                    ssxmax = c.ssx;
+                if (c.ssy > ssymax)
+                    ssymax = c.ssy;
+            }
+            if (ncomp == 1)
+            {
+                comp[0].ssx = comp[0].ssy = ssxmax = ssymax = 1;
+            }
+            mbsizex = ssxmax << 3;
+            mbsizey = ssymax << 3;
+            mbwidth = (width + mbsizex - 1) / mbsizex;
+            mbheight = (height + mbsizey - 1) / mbsizey;
+
+            for (auto &c : comp)
+            {
+
+                c.width = (width * c.ssx + ssxmax - 1) / ssxmax;
+                c.height = (height * c.ssy + ssymax - 1) / ssymax;
+                c.stride = mbwidth * c.ssx << 3;
+                if (((c.width < 3) && (c.ssx != ssxmax)) || ((c.height < 3) && (c.ssy != ssymax)))
                     njThrow(NJ_UNSUPPORTED);
+                c.size = c.stride * mbheight * c.ssy << 3;
+                if constexpr (allocate_memory)
+                {
+                    c.pixels.resize(c.size);
+                }
+
+                int srcw = c.width;
+                int srch = c.height;
+                while (srcw < width)
+                {
+                    c.chroma_w_log2 += 1;
+                    srcw <<= 1;
+                }
+                while (srch < height)
+                {
+                    c.chroma_h_log2 += 1;
+                    srch <<= 1;
+                }
             }
+            Skip(length);
         }
-        }
 
-
-    inline void Skip(int count)
-    {
-
-        pos += count;
-        size -= count;
-        length -= count;
-        if (size < 0)
-            njThrow(NJ_SYNTAX_ERROR);
-    }
-
-
-    inline void DecodeLength(void)
-    {
-        if (size < 2)
-            njThrow(NJ_SYNTAX_ERROR);
-        length = njDecode16(pos);
-        if (length > size)
-            njThrow(NJ_SYNTAX_ERROR);
-        Skip(2);
-    }
-
-    inline void SkipMarker(void)
-    {
-        DecodeLength();
-        Skip(length);
-    }
-
-    inline void DecodeSOF(void)
-    {
-        int i, ssxmax = 0, ssymax = 0;
-        DecodeLength();
-        if (length < 9)
-            njThrow(NJ_SYNTAX_ERROR);
-        if (pos[0] != 8)
-            njThrow(NJ_UNSUPPORTED);
-        height = njDecode16(pos + 1);
-        width = njDecode16(pos + 3);
-        if (!width || !height)
-            njThrow(NJ_SYNTAX_ERROR);
-        ncomp = pos[5];
-        Skip(6);
-        switch (ncomp)
+        inline void DecodeDHT(void)
         {
-        case 1:
-        case 3:
-        case 4: // grayscale, YCbCr, CMYK
-            break;
-        default:
-            njThrow(NJ_UNSUPPORTED);
-        }
-        if (length < (ncomp * 3))
-            njThrow(NJ_SYNTAX_ERROR);
-        comp.resize(ncomp);
-        for (auto &c : comp)
-        {
-            c.cid = pos[0];
-            if (!(c.ssx = pos[1] >> 4))
-                njThrow(NJ_SYNTAX_ERROR);
-            if (c.ssx & (c.ssx - 1))
-                njThrow(NJ_UNSUPPORTED); // non-power of two
-            if (!(c.ssy = pos[1] & 15))
-                njThrow(NJ_SYNTAX_ERROR);
-            if (c.ssy & (c.ssy - 1))
-                njThrow(NJ_UNSUPPORTED); // non-power of two
-            if ((c.qtsel = pos[2]) & 0xFC)
-                njThrow(NJ_SYNTAX_ERROR);
-            Skip(3);
-            qtused |= 1 << c.qtsel;
-            if (c.ssx > ssxmax)
-                ssxmax = c.ssx;
-            if (c.ssy > ssymax)
-                ssymax = c.ssy;
-        }
-        if (ncomp == 1)
-        {
-            comp[0].ssx = comp[0].ssy = ssxmax = ssymax = 1;
-        }
-        mbsizex = ssxmax << 3;
-        mbsizey = ssymax << 3;
-        mbwidth = (width + mbsizex - 1) / mbsizex;
-        mbheight = (height + mbsizey - 1) / mbsizey;
+            DecodeLength();
+            huff_DC.resize(2);
+            huff_AC.resize(2);
 
-        for (auto &c : comp)
-        {
-
-            c.width = (width * c.ssx + ssxmax - 1) / ssxmax;
-            c.height = (height * c.ssy + ssymax - 1) / ssymax;
-            c.stride = mbwidth * c.ssx << 3;
-            if (((c.width < 3) && (c.ssx != ssxmax)) || ((c.height < 3) && (c.ssy != ssymax)))
-                njThrow(NJ_UNSUPPORTED);
-            c.pixels.resize(c.stride * mbheight * c.ssy << 3);
-        }
-
-        for (auto&c : comp)
-        {
-            int srcw = c.width;
-            int srch = c.height;
-            while (srcw < width)
+            while (length >= 17)
             {
-                c.chroma_w_log2 += 1;
-                srcw <<= 1;
+                int i = pos[0];
+                if (i & 0xEC)
+                    njThrow(NJ_SYNTAX_ERROR);
+                if (i & 0x02)
+                    njThrow(NJ_UNSUPPORTED);
+                int idx = i & 1;
+                bool is_AC = i & 0x10;
+                Skip(1);
+                const uint8_t *dht = pos;
+                if (is_AC)
+                {
+                    auto &tab = huff_AC[idx];
+                    if (tab.dht)
+                        njThrow(NJ_SYNTAX_ERROR);
+                    tab.dht = dht;
+                    tab.build_lockup();
+                    Skip(tab.build_index());
+                }
+                else
+                {
+                    auto &tab = huff_DC[idx];
+                    if (tab.dht)
+                        njThrow(NJ_SYNTAX_ERROR);
+                    tab.dht = dht;
+                    tab.build_lockup();
+                    Skip(tab.build_index());
+                }
             }
-            while (srch < height)
-            {
-                c.chroma_h_log2 += 1;
-                srch <<= 1;
-            }
+            if (length)
+                njThrow(NJ_SYNTAX_ERROR);
         }
 
-        Skip(length);
-    }
-
-    inline void DecodeDHT(void)
-    {
-        DecodeLength();
-        huff_DC.resize(2);
-        huff_AC.resize(2);
-
-        while (length >= 17)
+        inline void DecodeDQT(void)
         {
-            int i = pos[0];
-            if (i & 0xEC)
-                njThrow(NJ_SYNTAX_ERROR);
-            if (i & 0x02)
-                njThrow(NJ_UNSUPPORTED);
-            int idx = i & 1;
-            bool is_AC = i & 0x10;
-            Skip(1);
-            const uint8_t *dht = pos;
-            if (is_AC)
+            DecodeLength();
+
+            static const uint8_t AANDctScaleFactor[64] =
+                {128, 178, 178, 167, 246, 167, 151, 232,
+                 232, 151, 128, 209, 219, 209, 128, 101,
+                 178, 197, 197, 178, 101, 69, 139, 167,
+                 177, 167, 139, 69, 35, 96, 131, 151,
+                 151, 131, 96, 35, 49, 91, 118, 128,
+                 118, 91, 49, 46, 81, 101, 101, 81,
+                 46, 42, 69, 79, 69, 42, 35, 54,
+                 54, 35, 28, 37, 28, 19, 19, 10};
+            qtab.resize(4);
+            while (length >= 65)
             {
-                auto &tab = huff_AC[idx];
-                if ( tab.dht )
-                   njThrow(NJ_SYNTAX_ERROR);
-                tab.dht = dht;
-                tab.build_lockup();
-                Skip(tab.build_index());
+                int i = pos[0];
+                if (i & 0xFC)
+                    njThrow(NJ_SYNTAX_ERROR);
+                qtavail |= 1 << i;
+                auto p = pos + 1;
+                auto scale = AANDctScaleFactor;
+                for (auto &t : qtab.at(i))
+                    t = (/*Integral Promotion */ (*p++) * (*scale++)) * float(1. / 1024.); // scale aan quantization table
+                Skip(65);
+            }
+            if (length)
+                njThrow(NJ_SYNTAX_ERROR);
+        }
+
+        inline void DecodeDRI(void)
+        {
+            DecodeLength();
+            if (length < 2)
+                njThrow(NJ_SYNTAX_ERROR);
+            rstinterval = njDecode16(pos);
+            Skip(length);
+        }
+
+        template <typename DCHuff, typename ACHuff, typename QTAB>
+        static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
+        {
+            alignas(32) float block[64]{};
+
+            uint8_t code{};
+            // DC coef
+            dcpred += dc.njGetVLC(bs, code);
+            alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+                                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
+                                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+                                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+
+            block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
+
+            int coef{0};
+
+            do
+            {
+                int value = ac.njGetVLC(bs, code);
+                if (!code)
+                    break; // EOB
+                if (!(code & 0x0F) && (code != 0xF0))
+                    njThrow(NJ_SYNTAX_ERROR);
+                coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
+                if (coef > 63)
+                {
+                    njThrow(NJ_SYNTAX_ERROR);
+                }
+                block[ZZ[coef]] = value * qtab[coef]; // DCT coefficients scaling and quantization
+            } while (coef < 63);
+
+            if (coef)
+            {
+                for (int i = 0; i < 64; i += 8)
+                    idct8(block[i + 0], block[i + 1], block[i + 2], block[i + 3], block[i + 4], block[i + 5], block[i + 6], block[i + 7]);
+
+                for (int i = 0; i < 8; ++i)
+                    idct8(block[i], block[i + 8], block[i + 16], block[i + 24], block[i + 32], block[i + 40], block[i + 48], block[i + 56]);
+
+                const float *blk = block;
+                for (; blk != block + 64; out += stride - 8)
+                {
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                    *out++ = njClip(*blk++ + 128.5f);
+                }
             }
             else
-            {
-                auto &tab = huff_DC[idx];
-                if ( tab.dht )
-                   njThrow(NJ_SYNTAX_ERROR);
-                tab.dht = dht;
-                tab.build_lockup();
-                Skip(tab.build_index());
-            }
-        }
-        if (length)
-            njThrow(NJ_SYNTAX_ERROR);
-    }
+            { // only DC component
+                auto value = njClip(block[0] + 128.5f);
 
-    inline void DecodeDQT(void)
-    {
-        DecodeLength();
-
-        static const uint8_t AANDctScaleFactor[64] =
-             {128, 178, 178, 167, 246, 167, 151, 232,
-             232, 151, 128, 209, 219, 209, 128, 101,
-             178, 197, 197, 178, 101, 69, 139, 167,
-             177, 167, 139, 69, 35, 96, 131, 151,
-             151, 131, 96, 35, 49, 91, 118, 128,
-             118, 91, 49, 46, 81, 101, 101, 81,
-             46, 42, 69, 79, 69, 42, 35, 54,
-             54, 35, 28, 37, 28, 19, 19, 10};
-        qtab.resize(4);
-        while (length >= 65)
-        {
-            int i = pos[0];
-            if (i & 0xFC)
-                njThrow(NJ_SYNTAX_ERROR);
-            qtavail |= 1 << i;
-            auto p = pos + 1;
-            auto scale = AANDctScaleFactor;
-            for (auto &t : qtab.at(i))
-                t = (/*Integral Promotion */ (*p++) * (*scale++) ) * float(1. / 1024.); //scale aan quantization table
-            Skip(65);
-        }
-        if (length)
-            njThrow(NJ_SYNTAX_ERROR);
-    }
-
-    inline void DecodeDRI(void)
-    {
-        DecodeLength();
-        if (length < 2)
-            njThrow(NJ_SYNTAX_ERROR);
-        rstinterval = njDecode16(pos);
-        Skip(length);
-    }
-
-    template <typename DCHuff, typename ACHuff, typename QTAB>
-    static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
-    {
-        alignas(32) float block[64]{};
-
-        uint8_t code{};
-        // DC coef
-        dcpred += dc.njGetVLC(bs, code);
-        alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
-                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
-                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
-                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
-
-        block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
-
-        int coef{0};
-
-        do
-        {
-            int value = ac.njGetVLC(bs, code);
-            if (!code)
-                break; // EOB
-            if (!(code & 0x0F) && (code != 0xF0))
-                njThrow(NJ_SYNTAX_ERROR);
-            coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
-            if (coef > 63)
-            {
-                njThrow(NJ_SYNTAX_ERROR);
-            }
-            block[ZZ[coef]] = value * qtab[coef]; // DCT coefficients scaling and quantization
-        } while (coef < 63);
-
-        if (coef)
-        {
-            for (int i=0; i<64; i+=8)
-                idct8(block[i+0], block[i+1], block[i+2], block[i+3], block[i+4], block[i+5], block[i+6], block[i+7]);
- 
-            for(int i=0;i<8;++i)
-                idct8(block[i], block[i+8], block[i+16], block[i+24], block[i+32], block[i+40], block[i+48], block[i+56]);
-     
-
-            const float *blk = block;
-            for (; blk != block + 64; out += stride - 8)
-            {
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-                *out++ = njClip(*blk++ + 128.5f);
-            }
-        }
-        else
-        { // only DC component
-            auto value = njClip(block[0] + 128.5f);
-
-            for (int i = 0; i < 8; ++i)
-            {
-                std::fill(out, out + 8, value);
-                out += stride; // next line
-            }
-        }
-    }
-
-    inline void DecodeScan()
-    {
-        DecodeLength();
-        if (length < (4 + 2 * ncomp))
-            njThrow(NJ_SYNTAX_ERROR);
-        if (pos[0] != ncomp)
-            njThrow(NJ_UNSUPPORTED);
-        Skip(1);
-        for (auto &c : comp)
-        {
-            if (pos[0] != c.cid)
-                njThrow(NJ_SYNTAX_ERROR);
-            if (pos[1] & 0xEE)
-                njThrow(NJ_SYNTAX_ERROR);
-            c.dctabsel = (pos[1] >> 4) & 1;
-            c.actabsel = (pos[1] & 1);
-            Skip(2);
-        }
-
-        if (pos[0] || (pos[1] != 63) || pos[2])
-            njThrow(NJ_UNSUPPORTED);
-        Skip(length);
-        BitstreamContext bitstream{};
-        bitstream.set_buffer(pos, size);
-        int rstcount = rstinterval, nextrst = 0;
-
-        for (int mby = 0; mby < mbheight; ++mby)
-            for (int mbx = 0; mbx < mbwidth; ++mbx)
-            {
-
-                for (auto &c : comp)
+                for (int i = 0; i < 8; ++i)
                 {
-                    const auto &ac = huff_AC[c.actabsel]; // AC table
-                    const auto &dc = huff_DC[c.dctabsel]; // DC table
-                    const auto &q = qtab[c.qtsel];     // quantization table
-
-                    for (int sby = 0; sby < c.ssy; ++sby)
-                        for (int sbx = 0; sbx < c.ssx; ++sbx)
-                        {
-                            njDecodeBlock(dc, ac, q, c.dcpred, bitstream, c.stride, c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
-                        }
+                    std::fill(out, out + 8, value);
+                    out += stride; // next line
                 }
-                if (rstinterval && !(--rstcount))
+            }
+        }
+
+        inline void DecodeScan()
+        {
+            DecodeLength();
+            if (length < (4 + 2 * ncomp))
+                njThrow(NJ_SYNTAX_ERROR);
+            if (pos[0] != ncomp)
+                njThrow(NJ_UNSUPPORTED);
+            Skip(1);
+            for (auto &c : comp)
+            {
+                if (pos[0] != c.cid)
+                    njThrow(NJ_SYNTAX_ERROR);
+                if (pos[1] & 0xEE)
+                    njThrow(NJ_SYNTAX_ERROR);
+                c.dctabsel = (pos[1] >> 4) & 1;
+                c.actabsel = (pos[1] & 1);
+                Skip(2);
+            }
+
+            if (pos[0] || (pos[1] != 63) || pos[2])
+                njThrow(NJ_UNSUPPORTED);
+            Skip(length);
+            BitstreamContext bitstream{};
+            bitstream.set_buffer(pos, size);
+            int rstcount = rstinterval, nextrst = 0;
+
+            for (int mby = 0; mby < mbheight; ++mby)
+                for (int mbx = 0; mbx < mbwidth; ++mbx)
                 {
 
-                    bitstream.refill();
-
-                    size_t chunk_size = bitstream.ptr + 2 - pos; // 2 bytes for RST marker
-                    pos += chunk_size;                           // skip RST marker
-                    size -= chunk_size;                          // skip RST marker
-                    if (size < 0)
-                        njThrow(NJ_SYNTAX_ERROR);
-                    int code = njDecode16(bitstream.ptr);
-                    if (code == 0xFFD9)
-                        return; // end of image
-                    bitstream.set_buffer(pos, size);
-                    if (((code & 0xFFF8) != 0xFFD0))
-                    {
-                        njThrow(NJ_SYNTAX_ERROR);
-                    }
-                    if ((code & 7) != nextrst)
-                        njThrow(NJ_SYNTAX_ERROR);
-                    nextrst = (nextrst + 1) & 7;
-                    rstcount = rstinterval;
                     for (auto &c : comp)
-                        c.dcpred = 0; // reset DC prediction to 0
+                    {
+                        const auto &ac = huff_AC[c.actabsel]; // AC table
+                        const auto &dc = huff_DC[c.dctabsel]; // DC table
+                        const auto &q = qtab[c.qtsel];        // quantization table
+
+                        for (int sby = 0; sby < c.ssy; ++sby)
+                            for (int sbx = 0; sbx < c.ssx; ++sbx)
+                            {
+                                njDecodeBlock(dc, ac, q, c.dcpred, bitstream, c.stride, c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
+                            }
+                    }
+                    if (rstinterval && !(--rstcount))
+                    {
+
+                        bitstream.refill();
+
+                        size_t chunk_size = bitstream.ptr + 2 - pos; // 2 bytes for RST marker
+                        pos += chunk_size;                           // skip RST marker
+                        size -= chunk_size;                          // skip RST marker
+                        if (size < 0)
+                            njThrow(NJ_SYNTAX_ERROR);
+                        int code = njDecode16(bitstream.ptr);
+                        if (code == 0xFFD9)
+                            return; // end of image
+                        bitstream.set_buffer(pos, size);
+                        if (((code & 0xFFF8) != 0xFFD0))
+                        {
+                            njThrow(NJ_SYNTAX_ERROR);
+                        }
+                        if ((code & 7) != nextrst)
+                            njThrow(NJ_SYNTAX_ERROR);
+                        nextrst = (nextrst + 1) & 7;
+                        rstcount = rstinterval;
+                        for (auto &c : comp)
+                            c.dcpred = 0; // reset DC prediction to 0
+                    }
                 }
+            bitstream.refill();                      // refill buffer to make sure we have enough bits to read the last marker
+            size_t chunk_size = bitstream.ptr - pos; // 2 bytes for RST marker
+            pos += chunk_size;                       // skip RST marker
+            size -= chunk_size;                      // skip RST marker
+            if (njDecode16(pos) == 0xFFD9)
+            {
+                pos += 2;  // skip EOI marker
+                size -= 2; // skip EOI marker
             }
-        bitstream.refill();                   // refill buffer to make sure we have enough bits to read the last marker
-        size_t chunk_size = bitstream.ptr - pos; // 2 bytes for RST marker
-        pos += chunk_size;                       // skip RST marker
-        size -= chunk_size;                      // skip RST marker
-        if (njDecode16(pos) == 0xFFD9) {
-            pos += 2; // skip EOI marker
-            size -= 2; // skip EOI marker
         }
-    }
     };
 
-    struct nj_result {
+    struct nj_result
+    {
         int width{};
         int height{};
         bool is_ycck{};
@@ -790,11 +808,24 @@ inline void idct8(float &s0, float &s1, float &s2, float &s3, float &s4, float &
 
     nj_result decode(const uint8_t *jpeg, size_t size)
     {
-        nj_context_t nj{}; //clear context
+        nj_context_t nj{}; // clear context
         nj.pos = jpeg;
-        nj.size = size & 0x7FFFFFFF;
+        nj.size = size;
         nj.Decode();
-        return { nj.width, nj.height, nj.is_ycck && nj.ncomp==4, std::move(nj.comp) }; // return components
+        return {nj.width, nj.height, nj.is_ycck && nj.ncomp == 4, std::move(nj.comp)}; // return components
+    }
+
+    void decode(const uint8_t *jpeg, size_t size, nj_result &reuse)
+    {
+        nj_context_t nj{}; // clear context
+        std::swap(nj.comp, reuse.components);
+        nj.pos = jpeg;
+        nj.size = size;
+        nj.Decode();
+        reuse.width = nj.width;
+        reuse.height = nj.height;
+        reuse.is_ycck = nj.is_ycck && nj.ncomp == 4;
+        std::swap(nj.comp, reuse.components);
     }
 
 } // namespace nj
