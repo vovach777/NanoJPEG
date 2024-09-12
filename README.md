@@ -38,12 +38,11 @@ int main() {
 }
 ```
 
-
 ## Performance
 
 **NanoJPEG++** shows an average performance improvement of 5% compared to `libjpeg-turbo`, especially on larger files. This makes it an excellent choice for applications requiring high-speed image processing.
-   - The `app.cpp` file in the project contains usage examples and can be used for performance testing.
 
+- The `app.cpp` file in the project contains usage examples and can be used for performance testing.
 
 ## License
 
@@ -56,4 +55,3 @@ We welcome contributions to the project. If you would like to make improvements,
 ## Contact
 
 If you have any questions or suggestions, you can reach us at [vovach777@gmail.com](mailto:vovach777@gmail.com).
-

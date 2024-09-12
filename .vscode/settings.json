@@ -3,7 +3,7 @@
     "cmake.options.statusBarVisibility": "visible",
     "cmake.debugConfig": {
         "args": [
-            "kodim23.jpg"
+            "sample_1920x1080.mjpeg"
         ]
     },
     "git.scanRepositories": ["${workspaceFolder}"]

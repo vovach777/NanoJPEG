@@ -152,11 +152,11 @@ namespace profiling
     struct StopWatch
     {
         std::optional<high_resolution_clock::time_point> start_point{};
-        double elipsed_total{};
+        double elapsed_total{};
 
         inline void startnew()
         {
-            elipsed_total = 0.0;
+            elapsed_total = 0.0;
             start();
         }
 
@@ -168,21 +168,21 @@ namespace profiling
 
         inline bool is_running() const { return start_point.has_value(); }
 
-        inline double elipsed() const
+        inline double elapsed() const
         {
-            return elipsed_total + ((start_point) ? duration<double>(high_resolution_clock::now() - *start_point).count() : 0);
+            return elapsed_total + ((start_point) ? duration<double>(high_resolution_clock::now() - *start_point).count() : 0);
         }
         void stop()
         {
             if (start_point)
             {
-                elipsed_total += duration<double>(high_resolution_clock::now() - *start_point).count();
+                elapsed_total += duration<double>(high_resolution_clock::now() - *start_point).count();
                 start_point.reset();
             }
         }
-        std::string elipsed_str() const
+        std::string elapsed_str() const
         {
-            return std::string((std::stringstream() << std::fixed << std::setprecision(9) << elipsed()).str());
+            return std::string((std::stringstream() << std::fixed << std::setprecision(9) << elapsed()).str());
         };
     };
 }
@@ -263,14 +263,29 @@ void nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
     bench.stop();
 }
 
-inline void print_stat(std::string title, double elipsed, double imgMPixSize, size_t size, int times)
+inline void print_stat(std::string title, double elapsed, double imgMPixSize, size_t size_total, int times)
 {
     std::cout << "** " << title << " **" << std::endl;
-    std::cout << "time   = " << std::fixed << std::setprecision(9) << (elipsed / times) << " seconds" << std::endl;
-    std::cout << "images = " << std::fixed << std::setprecision(3) << (times / elipsed) << " fps" << std::endl;
-    std::cout << "bytes  = " << std::fixed << std::setprecision(2) << (times * size / (1024.0 * 1024.0) / elipsed) << " MB/s" << std::endl;
-    std::cout << "pixels = " << std::fixed << std::setprecision(2) << (imgMPixSize * double(times) / elipsed) << " MPix/s" << std::endl;
+    std::cout << "time   = " << std::fixed << std::setprecision(9) << (elapsed / times) << " seconds" << std::endl;
+    std::cout << "images = " << std::fixed << std::setprecision(3) << (times / elapsed) << " fps" << std::endl;
+    std::cout << "bytes  = " << std::fixed << std::setprecision(2) << (size_total / (1024.0 * 1024.0) / elapsed) << " MB/s" << std::endl;
+    std::cout << "pixels = " << std::fixed << std::setprecision(2) << (imgMPixSize * double(times) / elapsed) << " MPix/s" << std::endl;
     std::cout << std::endl;
+}
+
+template <typename convertable_to_string>
+inline std::string ext(convertable_to_string &&path)
+{
+   auto s = std::string(path);
+   auto pos = s.find_last_of('.');
+   if ( std::string::npos == pos)
+        return "";
+    else {
+        std::string ext = s.substr(pos + 1);
+        for (auto &c : ext)
+            c = std::tolower(c);
+        return ext;
+    }
 }
 
 int main(int argc, char **argv)
@@ -285,8 +300,32 @@ int main(int argc, char **argv)
             throw std::runtime_error(error.message());
         }
         StopWatch njtime{}, tjtime{}, tjtime_fast{}, convert_time{};
+        auto file_extenstion = ext(argv[1]);
+        bool is_motion = file_extenstion == "mjpeg" ||  file_extenstion == "mjpg";
+        if ( is_motion ) {
+            std::cout << "Motion JPEG detected" << std::endl;
+            StopWatch motion_time{};
+            motion_time.start();
+            const uint8_t * pos = mmap.data();
+            size_t    size = mmap.size();
+            nanojpeg::nj_context_t njmotion{};
+            nanojpeg::nj_result frame{};
+            int times = 0; // number of frames decoded
+            while (size > 0)
+            {
+                nanojpeg::decode(pos,size,frame);
+                times+=1;
+            }
+            motion_time.stop();
+            auto imgMPixSize = frame.width * frame.height * 1e-6;
+            std::cout << "stream  = " << frame.width << "x" << frame.height << " (" << std::fixed << std::setprecision(1) << imgMPixSize << " MPix)" << std::endl;
 
-        int times = std::min(1000., std::ceil(1024 * 1024 * 150.0 / mmap.size()));
+            print_stat("nanojpeg motion", motion_time.elapsed(), imgMPixSize,  mmap.size(), times);
+            return 0;
+        }
+
+        int times = std::clamp(1024 * 1024 * 1024.0 / mmap.size(),1.,2000.);
+        std::cout << "Benchmarking repeats " << times << " times. Every dot is 100 frames." << std::endl;
 
         bool turbo_ok = true;
         try
@@ -300,8 +339,6 @@ int main(int argc, char **argv)
                       << "turbojpeg failed: " << e.what() << std::endl;
             turbo_ok = false;
         }
-
-        std::cout << "benchmarking" << std::flush;
 
         for (int i = 0; i < times; i++)
         {
@@ -322,17 +359,17 @@ int main(int argc, char **argv)
 
         auto imgMPixSize = image.width * image.height * 1e-6;
 
-        std::cout << "image  = " << image.width << "x" << image.height << " (" << std::fixed << std::setprecision(3) << imgMPixSize << " MPix)" << std::endl;
+        std::cout << "image  = " << image.width << "x" << image.height << " (" << std::fixed << std::setprecision(1) << imgMPixSize << " MPix)" << std::endl;
         if (turbo_ok)
         {
-            print_stat("jpeg-turbo", tjtime.elipsed(), imgMPixSize, mmap.size(), times);
-            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elipsed(), imgMPixSize, mmap.size(), times);
-            std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elipsed() / tjtime_fast.elipsed()) << "x" << std::endl;
+            print_stat("jpeg-turbo", tjtime.elapsed(), imgMPixSize, image.size, times);
+            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elapsed(), imgMPixSize, image.size, times);
+            std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / tjtime_fast.elapsed()) << "x" << std::endl;
 
         }
-        print_stat("nanojpeg", njtime.elipsed(), imgMPixSize, mmap.size(), times);
+        print_stat("nanojpeg", njtime.elapsed(), imgMPixSize, image.size, times);
         if (turbo_ok)
-            std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elipsed() / njtime.elipsed()) << "x" << std::endl;
+            std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / njtime.elapsed()) << "x" << std::endl;
 
         auto out_filename = std::string(argv[1]) + ".bmp";
 
@@ -345,7 +382,7 @@ int main(int argc, char **argv)
                 { return (int)comp[comp_n].pixels[y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)
                 { ((*rgb_out++ = args), ...); });
         convert_time.stop();
-        std::cout << "yuv to rgb time = " << convert_time.elipsed_str() << std::endl;
+        std::cout << "yuv to rgb time = " << convert_time.elapsed_str() << std::endl;
         stbi_write_bmp(out_filename.c_str(), image.width, image.height, comp_nb, rgb.data());
     }
     catch (const std::exception &e)

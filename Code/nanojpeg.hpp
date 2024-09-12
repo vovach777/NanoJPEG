@@ -798,6 +798,7 @@ namespace nanojpeg
     {
         int width{};
         int height{};
+        size_t size{};
         bool is_ycck{};
         std::vector<nj_component_t> components{};
     };
@@ -808,10 +809,10 @@ namespace nanojpeg
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
-        return {nj.width, nj.height, nj.is_ycck && nj.ncomp == 4, std::move(nj.comp)}; // return components
+        return {nj.width, nj.height, size, nj.is_ycck && nj.ncomp == 4, std::move(nj.comp)}; // return components
     }
 
-    void decode(const uint8_t *jpeg, size_t size, nj_result &reuse)
+    void decode( const uint8_t* &jpeg, size_t &size, nj_result &reuse)
     {
         nj_context_t nj{}; // clear context
         std::swap(nj.comp, reuse.components);
@@ -820,8 +821,11 @@ namespace nanojpeg
         nj.Decode();
         reuse.width = nj.width;
         reuse.height = nj.height;
+        reuse.size = size - nj.size;
         reuse.is_ycck = nj.is_ycck && nj.ncomp == 4;
         std::swap(nj.comp, reuse.components);
+        jpeg = nj.pos;
+        size = nj.size;
     }
 
 } // namespace nj
