@@ -1,6 +1,11 @@
 #include <iostream>
+#include <fstream>
 #include <sstream>
-#include <tuple>
+#include <chrono>
+#include <iomanip>
+#include <iostream>
+#include <stdexcept>
+#include <optional>
 #include "nanojpeg.hpp"
 #include "mio.hpp"
 #include <algorithm>
@@ -138,15 +143,9 @@ void save_bmp(_STR &&out_filename, COMPS &&image)
     stbi_write_bmp(out_filename.c_str(), image.width, image.height, comp_nb, rgb.data());
 }
 
-#include <chrono>
-#include <iomanip>
-#include <iostream>
-#include <stdexcept>
-#include <optional>
 namespace profiling
 {
     using std::chrono::duration;
-    using std::chrono::duration_cast;
     using std::chrono::high_resolution_clock;
 
     struct StopWatch
@@ -221,7 +220,8 @@ struct comp
     }
 };
 
-void jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fastDCT)
+__attribute__((noinline, optnone))
+static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fastDCT)
 {
 
     nanojpeg::nj_context_t njheader{};
@@ -231,37 +231,58 @@ void jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fa
     if (njheader.ncomp != 3)
         throw std::runtime_error("jpeg turbo can only decode direct YUV8 places");
 
-    bench.start();
+
+    struct H
     {
+        tjhandle handle{};
+        H(tjhandle h) : handle(h) {}
+        ~H() { tj3Destroy(handle); }
+    } tj3handleRAII(tj3Init(TJINIT_DECOMPRESS));
 
-        struct H
-        {
-            tjhandle handle{};
-            H(tjhandle h) : handle(h) {}
-            ~H() { tj3Destroy(handle); }
-        } tj3handleRAII(tj3Init(TJINIT_DECOMPRESS));
+    // tj3DecompressHeader(tj3handleRAII.handle, buf, size); //without this call we can not retrive the buffer size
+    njheader.allocate_pixels(); // bench memory on tj side
 
-        // tj3DecompressHeader(tj3handleRAII.handle, buf, size); //without this call we can not retrive the buffer size
-        njheader.allocate_pixels(); // bench memory on tj side
+    uint8_t *yuv_planes[3] = {njheader.comp[0].pixels.data(), njheader.comp[1].pixels.data(), njheader.comp[2].pixels.data()};
+    int strides[3] = {njheader.comp[0].stride, njheader.comp[1].stride, njheader.comp[2].stride};
 
-        uint8_t *yuv_planes[3] = {njheader.comp[0].pixels.data(), njheader.comp[1].pixels.data(), njheader.comp[2].pixels.data()};
-        int strides[3] = {njheader.comp[0].stride, njheader.comp[1].stride, njheader.comp[2].stride};
-
-        if (fastDCT)
-            tj3Set(tj3handleRAII.handle, TJPARAM_FASTDCT, 1);
-        if (tj3DecompressToYUVPlanes8(tj3handleRAII.handle, buf, size, (uint8_t **)yuv_planes, (int *)strides) != 0)
-            throw std::runtime_error("tjDecompressToYUVPlanes failed:" + std::string(tjGetErrorStr2(tj3handleRAII.handle)));
-        njheader.comp.clear(); // bench memory on tj side
-    }
+    if (fastDCT)
+        tj3Set(tj3handleRAII.handle, TJPARAM_FASTDCT, 1);
+    bench.start();
+    if (tj3DecompressToYUVPlanes8(tj3handleRAII.handle, buf, size, (uint8_t **)yuv_planes, (int *)strides) != 0)
+        throw std::runtime_error("tjDecompressToYUVPlanes failed:" + std::string(tjGetErrorStr2(tj3handleRAII.handle)));
     bench.stop();
+
+    return njheader.comp;
 }
 
-void nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
+__attribute__((noinline, optnone))
+static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
+{
+    nanojpeg::nj_context_t njheader{};
+    njheader.pos = buf;
+    njheader.size = size;
+    njheader.DecodeSOF<true, false>();
+    nanojpeg::nj_result frame{};
+    //avoide memory allocation in nanojpeg side
+    frame.components.resize( njheader.ncomp );
+    for (int i = 0; i < njheader.ncomp; i++) {
+        frame.components[i].pixels.resize( njheader.comp[i].size);
+    }
+
+    bench.start();
+    nanojpeg::decode(buf, size, frame);
+    bench.stop();
+    return frame;
+}
+
+__attribute__((noinline, optnone))
+static void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *&buf, size_t &size, nanojpeg::nj_result &frame)
 {
     bench.start();
-    (void)nanojpeg::decode(buf, size);
+    nanojpeg::decode(buf, size, frame);
     bench.stop();
 }
+
 
 inline void print_stat(std::string title, double elapsed, double imgMPixSize, size_t size_total, int times)
 {
@@ -276,10 +297,11 @@ inline void print_stat(std::string title, double elapsed, double imgMPixSize, si
 template <typename convertable_to_string>
 inline std::string ext(convertable_to_string &&path)
 {
-   auto s = std::string(path);
-   auto pos = s.find_last_of('.');
-   if ( std::string::npos == pos)
+    auto s = std::string(path);
+    auto pos = s.find_last_of('.');
+    if ( std::string::npos == pos) {
         return "";
+    }
     else {
         std::string ext = s.substr(pos + 1);
         for (auto &c : ext)
@@ -305,18 +327,43 @@ int main(int argc, char **argv)
         if ( is_motion ) {
             std::cout << "Motion JPEG detected" << std::endl;
             StopWatch motion_time{};
-            motion_time.start();
+
             const uint8_t * pos = mmap.data();
             size_t    size = mmap.size();
-            nanojpeg::nj_context_t njmotion{};
-            nanojpeg::nj_result frame{};
             int times = 0; // number of frames decoded
+            std::ofstream fileyuv_file( std::string(argv[1]) + ".y4m", std::ios::binary | std::ios::out | std::ios::trunc);
+            nanojpeg::nj_result frame{};
+
             while (size > 0)
             {
-                nanojpeg::decode(pos,size,frame);
+                motion_time.start();
+                nanojpeg_motion_bench(motion_time, pos, size,frame);
+                motion_time.stop();
                 times+=1;
+                if (times == 1) {
+                    //header
+                    if ( frame.yuv_format != 420 )
+                        fileyuv_file << "YUV4MPEG2 W" << frame.width << " H" << frame.height << " F25:1 It C" << frame.yuv_format <<  " XYSCSS=" << frame.yuv_format << " XCOLORRANGE=FULL\n";
+                    else
+                        fileyuv_file << "YUV4MPEG2 W" << frame.width << " H" << frame.height << " F25:1 It C420jpeg XYSCSS=420JPEG XCOLORRANGE=FULL\n";
+
+                }
+                if (times % 100 == 0)
+                    std::cout << "." << std::flush;
+
+                fileyuv_file << "FRAME\n";
+
+                for (const auto& c : frame.components)
+                {
+                    const uint8_t * p = c.pixels.data();
+                    for (int h = 0; h < frame.height >> c.chroma_h_log2; h++, p+=c.stride)
+                    {
+                        fileyuv_file.write(reinterpret_cast<const char *>(p), frame.width >> c.chroma_w_log2 );
+                    }
+                }
+                fileyuv_file.flush();
             }
-            motion_time.stop();
+            std::cout << std::endl;
             auto imgMPixSize = frame.width * frame.height * 1e-6;
             std::cout << "stream  = " << frame.width << "x" << frame.height << " (" << std::fixed << std::setprecision(1) << imgMPixSize << " MPix)" << std::endl;
 
@@ -324,7 +371,15 @@ int main(int argc, char **argv)
             return 0;
         }
 
-        int times = std::clamp(1024 * 1024 * 1024.0 / mmap.size(),1.,2000.);
+        auto image = nanojpeg::decode(mmap.data(), mmap.size());//load memmap into nanojpeg image
+        if (image.yuv_format == 0) {
+            std::cerr << "warining: not standard yuv format!" << std::endl;
+        } else {
+            std::cout << "* YUV" << image.yuv_format << std::endl;
+            std::cout << "* " << image.width << "x" << image.height << std::endl;
+        }
+
+        int times = std::clamp(1024 * 1024 * 1024.0 / image.size,1.,2000.);
         std::cout << "Benchmarking repeats " << times << " times. Every dot is 100 frames." << std::endl;
 
         bool turbo_ok = true;
@@ -343,19 +398,18 @@ int main(int argc, char **argv)
         for (int i = 0; i < times; i++)
         {
 
-            nanojpeg_bench(njtime, mmap.data(), mmap.size());
+            (void)nanojpeg_bench(njtime, mmap.data(), mmap.size());
 
             if (turbo_ok)
             {
-                jpeg_turbo_bench(tjtime, mmap.data(), mmap.size(), false);
-                jpeg_turbo_bench(tjtime_fast, mmap.data(), mmap.size(), true);
+                (void)jpeg_turbo_bench(tjtime, mmap.data(), mmap.size(), false);
+                (void)jpeg_turbo_bench(tjtime_fast, mmap.data(), mmap.size(), true);
             }
             if (i % 100 == 0)
                 std::cout << "." << std::flush;
         }
         std::cout << std::endl;
 
-        auto image = nanojpeg::decode(mmap.data(), mmap.size());
 
         auto imgMPixSize = image.width * image.height * 1e-6;
 

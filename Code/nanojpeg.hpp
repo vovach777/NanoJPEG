@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.0) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 3.1) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -383,7 +383,7 @@ namespace nanojpeg
         std::vector<std::array<float, 64>> qtab{};
         int rstinterval{};
         std::vector<HuffCode<4>> huff_DC{};
-        std::vector<HuffCode<8>> huff_AC{};
+        std::vector<HuffCode<12>> huff_AC{};
         bool is_ycck{false}; // YCCK color space
 
         inline void allocate_pixels()
@@ -392,6 +392,23 @@ namespace nanojpeg
             {
                 c.pixels.resize(c.size);
             }
+        }
+
+        inline int get_yuv_format() {
+            if (!( ncomp == 3 &&
+                    comp[0].chroma_h_log2==0 && comp[0].chroma_w_log2==0 &&
+                    comp[1].chroma_h_log2== comp[2].chroma_h_log2 && comp[1].chroma_w_log2== comp[2].chroma_w_log2 ))
+                return 0; // not yuv format
+            switch ( comp[1].chroma_w_log2 << 4 | comp[1].chroma_h_log2 )
+            {
+                case 0x20:  return 411;
+                case 0x11:  return 420;
+                case 0x10:  return 422;
+                case 0x00:  return 444;
+                case 0x01:  return 440;
+            }
+            return 0; // not yuv format
+
         }
 
         inline void Decode()
@@ -539,9 +556,9 @@ namespace nanojpeg
             mbwidth = (width + mbsizex - 1) / mbsizex;
             mbheight = (height + mbsizey - 1) / mbsizey;
 
+
             for (auto &c : comp)
             {
-
                 c.width = (width * c.ssx + ssxmax - 1) / ssxmax;
                 c.height = (height * c.ssy + ssymax - 1) / ssymax;
                 c.stride = mbwidth * c.ssx << 3;
@@ -800,22 +817,27 @@ namespace nanojpeg
         int height{};
         size_t size{};
         bool is_ycck{};
+        int yuv_format{}; // native form; 444 = yuv444, 422 = yuv422, 420 = yuv420, 411 = yuv411, 400 = yuv400
         std::vector<nj_component_t> components{};
     };
 
-    nj_result decode(const uint8_t *jpeg, size_t size)
+    static nj_result decode(const uint8_t *jpeg, size_t size)
     {
         nj_context_t nj{}; // clear context
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
-        return {nj.width, nj.height, size, nj.is_ycck && nj.ncomp == 4, std::move(nj.comp)}; // return components
+        return {nj.width, nj.height, size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::move(nj.comp)}; // return components
     }
 
-    void decode( const uint8_t* &jpeg, size_t &size, nj_result &reuse)
+    static void decode( const uint8_t* &jpeg, size_t &size, nj_result &reuse)
     {
         nj_context_t nj{}; // clear context
-        std::swap(nj.comp, reuse.components);
+        nj.comp.resize(reuse.components.size()); // reuse components buffer
+        for (int i = 0; i < reuse.components.size(); ++i)
+        {
+            std::swap(reuse.components[i].pixels, nj.comp[i].pixels); // reuse components buffer
+        }
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
@@ -823,6 +845,7 @@ namespace nanojpeg
         reuse.height = nj.height;
         reuse.size = size - nj.size;
         reuse.is_ycck = nj.is_ycck && nj.ncomp == 4;
+        reuse.yuv_format = nj.get_yuv_format();
         std::swap(nj.comp, reuse.components);
         jpeg = nj.pos;
         size = nj.size;

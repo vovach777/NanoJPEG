@@ -6,5 +6,7 @@
             "sample_1920x1080.mjpeg"
         ]
     },
-    "git.scanRepositories": ["${workspaceFolder}"]
+    "git.scanRepositories": [
+        "${workspaceFolder}"
+    ]
 }
