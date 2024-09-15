@@ -40,7 +40,7 @@ int main() {
 
 ## Performance
 
-**NanoJPEG++** shows an average performance similar to `libjpeg-turbo`. An yuv444p average performance is 5%-25% faster than `libjpeg-turbo` (for an unknown reason!). The performance of the library depends on the specific hardware and compiler used. However, it is designed to be highly efficient and suitable for embedded systems and real-time applications.
+**NanoJPEG++** (with clang-15 -Ofast -flto) shows an average performance similar to `libjpeg-turbo` (with SIMD assembly). The performance of the library depends on the specific hardware and compiler used. However, it is designed to be highly efficient and suitable for embedded systems and real-time applications.
 
 - The `app.cpp` file in the project contains usage examples and can be used for performance testing.
 

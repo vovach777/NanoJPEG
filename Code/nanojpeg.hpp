@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.1) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 3.1.1) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -383,7 +383,7 @@ namespace nanojpeg
         std::vector<std::array<float, 64>> qtab{};
         int rstinterval{};
         std::vector<HuffCode<4>> huff_DC{};
-        std::vector<HuffCode<12>> huff_AC{};
+        std::vector<HuffCode<8>> huff_AC{};
         bool is_ycck{false}; // YCCK color space
 
         inline void allocate_pixels()

@@ -19,7 +19,3 @@ target_include_directories(nanojpeg PRIVATE ${Stb_INCLUDE_DIR})
 
 find_package(libjpeg-turbo CONFIG REQUIRED)
 target_link_libraries(nanojpeg PRIVATE libjpeg-turbo::turbojpeg-static)
-
-# Получаем и выводим финальные флаги компиляции
-get_target_property(COMPILE_FLAGS_EXEC nanojpeg COMPILE_OPTIONS)
-message("Final compile flags: ${COMPILE_FLAGS_EXEC}")
