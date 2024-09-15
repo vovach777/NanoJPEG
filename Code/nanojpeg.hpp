@@ -666,7 +666,7 @@ namespace nanojpeg
         }
 
         template <typename DCHuff, typename ACHuff, typename QTAB>
-        static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
+        inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
         {
             alignas(16) float block[64]{};
             alignas(16) float block_col[64];
