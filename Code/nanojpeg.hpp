@@ -222,6 +222,14 @@ namespace nanojpeg
         const uint8_t *dht{nullptr};
         int max_peek{0};
 
+        void reset() {
+            std::fill(abc_dht.begin(), abc_dht.end(), DHTItem{});
+            std::fill(bitseek.begin(), bitseek.end(), 0);
+            std::fill(fast_lockup.begin(), fast_lockup.end(), 0);
+            dht = nullptr;
+            max_peek = 0;
+        }
+
         void build_lockup()
         {
             max_peek = 0;
