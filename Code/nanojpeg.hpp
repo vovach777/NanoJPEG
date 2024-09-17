@@ -831,7 +831,7 @@ namespace nanojpeg
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
-        return {nj.width, nj.height, size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::move(nj.comp)}; // return components
+        return {nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::move(nj.comp)}; // return components
     }
 
     static void decode( const uint8_t* &jpeg, size_t &size, nj_result &reuse)
