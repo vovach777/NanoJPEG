@@ -383,6 +383,7 @@ namespace nanojpeg
         std::vector<std::array<float, 64>> qtab{};
         int rstinterval{};
         std::vector<HuffCode<4>> huff_DC{};
+        std::vector<HuffCode<8>> huff_AC{};
         std::vector<HuffCode<12>> huff_AC{};
         bool is_ycck{false}; // YCCK color space
 
@@ -607,7 +608,7 @@ namespace nanojpeg
                 {
                     auto &tab = huff_AC[idx];
                     if (tab.dht)
-                        njThrow(NJ_SYNTAX_ERROR);
+                        tab.reset();
                     tab.dht = dht;
                     tab.build_lockup();
                     Skip(tab.build_index());
@@ -616,7 +617,7 @@ namespace nanojpeg
                 {
                     auto &tab = huff_DC[idx];
                     if (tab.dht)
-                        njThrow(NJ_SYNTAX_ERROR);
+                        tab.reset();
                     tab.dht = dht;
                     tab.build_lockup();
                     Skip(tab.build_index());
@@ -666,7 +667,7 @@ namespace nanojpeg
         }
 
         template <typename DCHuff, typename ACHuff, typename QTAB>
-        static inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
+        inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
         {
             alignas(16) float block[64]{};
             alignas(16) float block_col[64];
@@ -758,6 +759,7 @@ namespace nanojpeg
             int rstcount = rstinterval, nextrst = 0;
 
             for (int mby = 0; mby < mbheight; ++mby)
+            {
                 for (int mbx = 0; mbx < mbwidth; ++mbx)
                 {
 
@@ -773,41 +775,38 @@ namespace nanojpeg
                                 njDecodeBlock(dc, ac, q, c.dcpred, bitstream, c.stride, c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
                             }
                     }
-                    if (rstinterval && !(--rstcount))
+                    if (rstinterval && !(--rstcount) && ( mby != mbheight-1 ))
                     {
-
                         bitstream.refill();
+                        Skip( bitstream.ptr - pos );
+                        while (size >= 2 && njDecode16(pos) == 0xffff) Skip(1); //skips fill bytes
+                        if (size < 2)
+                            njThrow(NJ_SYNTAX_ERROR);
+                        int  code = njDecode16(pos);
+                        Skip(2);
+                        // if (code == 0xFFD9) // EOI marker
+                        // {
+                        //     while ( size >= 2 &&  njDecode16(pos) == 0xFFD9 ) Skip(2);
+                        //     return; // end of image
+                        // }
+                        if ( (code & 0xFFF8) != 0xFFD0)
+                            njThrow(NJ_SYNTAX_ERROR);
 
-                        size_t chunk_size = bitstream.ptr + 2 - pos; // 2 bytes for RST marker
-                        pos += chunk_size;                           // skip RST marker
-                        size -= chunk_size;                          // skip RST marker
-                        if (size < 0)
-                            njThrow(NJ_SYNTAX_ERROR);
-                        int code = njDecode16(bitstream.ptr);
-                        if (code == 0xFFD9)
-                            return; // end of image
-                        bitstream.set_buffer(pos, size);
-                        if (((code & 0xFFF8) != 0xFFD0))
-                        {
-                            njThrow(NJ_SYNTAX_ERROR);
-                        }
                         if ((code & 7) != nextrst)
                             njThrow(NJ_SYNTAX_ERROR);
+
+                        bitstream.set_buffer(pos, size);
                         nextrst = (nextrst + 1) & 7;
                         rstcount = rstinterval;
                         for (auto &c : comp)
                             c.dcpred = 0; // reset DC prediction to 0
                     }
+                    }
                 }
             bitstream.refill();                      // refill buffer to make sure we have enough bits to read the last marker
-            size_t chunk_size = bitstream.ptr - pos; // 2 bytes for RST marker
-            pos += chunk_size;                       // skip RST marker
-            size -= chunk_size;                      // skip RST marker
-            if (njDecode16(pos) == 0xFFD9)
-            {
-                pos += 2;  // skip EOI marker
-                size -= 2; // skip EOI marker
-            }
+            Skip(bitstream.ptr - pos);
+            while ( size >= 2 &&  njDecode16(pos) == 0xffff ) Skip(1); // skip padding bytes before the last marker
+            while ( size >= 2 &&  njDecode16(pos) == 0xFFD9)  Skip(2); // skip repeated EOI markers
         }
     };
 

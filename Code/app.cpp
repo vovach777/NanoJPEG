@@ -187,39 +187,6 @@ namespace profiling
 }
 using profiling::StopWatch;
 
-struct comp
-{
-    std::vector<uint8_t> data{};
-    int chroma_h_log2{}, chroma_w_log2{};
-    void setup(int subsamp, int comp)
-    {
-        switch (comp)
-        {
-        case 0:
-            chroma_h_log2 = 0;
-            chroma_w_log2 = 0;
-            break;
-        case 1:
-        case 2:
-            switch (subsamp)
-            {
-            case TJSAMP_444:
-                chroma_h_log2 = 0;
-                chroma_w_log2 = 0;
-                break;
-            case TJSAMP_420:
-                chroma_h_log2 = 1;
-                chroma_w_log2 = 1;
-                break;
-            case TJSAMP_422:
-                chroma_h_log2 = 0;
-                chroma_w_log2 = 1;
-                break;
-            }
-        }
-    }
-};
-
 __attribute__((noinline, optnone))
 static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fastDCT)
 {
