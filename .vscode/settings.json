@@ -3,7 +3,7 @@
     "cmake.options.statusBarVisibility": "visible",
     "cmake.debugConfig": {
         "args": [
-            "sample_1920x1080.mjpeg"
+            "webcam.mjpeg"
         ]
     },
     "git.scanRepositories": [

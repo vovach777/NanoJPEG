@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <string_view>
 
 namespace nanojpeg
 {
@@ -392,6 +393,7 @@ namespace nanojpeg
         int rstinterval{};
         std::vector<HuffCode<4>> huff_DC{};
         std::vector<HuffCode<8>> huff_AC{};
+        size_t dht_hash{}; // hash of the DHT tables
         bool is_ycck{false}; // YCCK color space
 
         inline void allocate_pixels()
@@ -598,6 +600,7 @@ namespace nanojpeg
             DecodeLength();
             huff_DC.resize(2);
             huff_AC.resize(2);
+            dht_hash ^= std::hash<std::string_view>{}( std::string_view((const char*)pos, (size_t)length));
             while (length >= 17)
             {
                 int i = pos[0];
@@ -806,8 +809,8 @@ namespace nanojpeg
                         for (auto &c : comp)
                             c.dcpred = 0; // reset DC prediction to 0
                     }
-                    }
                 }
+            }
             bitstream.refill();                      // refill buffer to make sure we have enough bits to read the last marker
             Skip(bitstream.ptr - pos);
             while ( size >= 2 &&  njDecode16(pos) == 0xffff ) Skip(1); // skip padding bytes before the last marker
@@ -823,6 +826,9 @@ namespace nanojpeg
         bool is_ycck{};
         int yuv_format{}; // native form; 444 = yuv444, 422 = yuv422, 420 = yuv420, 411 = yuv411, 400 = yuv400
         std::vector<nj_component_t> components{};
+        size_t dht_hash{};
+        decltype(nj_context_t::huff_DC) huff_DC{}; // DC huffman tables
+        decltype(nj_context_t::huff_AC) huff_AC{}; // AC huffman tables
     };
 
     static nj_result decode(const uint8_t *jpeg, size_t size)
@@ -831,7 +837,7 @@ namespace nanojpeg
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
-        return {nj.width, nj.height, size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::move(nj.comp)}; // return components
+        return {nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::move(nj.comp), nj.dht_hash}; // return components
     }
 
     static void decode( const uint8_t* &jpeg, size_t &size, nj_result &reuse)
@@ -844,13 +850,18 @@ namespace nanojpeg
         }
         nj.pos = jpeg;
         nj.size = size;
+        std::swap(nj.huff_DC, reuse.huff_DC);
+        std::swap(nj.huff_AC, reuse.huff_AC);
         nj.Decode();
         reuse.width = nj.width;
         reuse.height = nj.height;
         reuse.size = size - nj.size;
         reuse.is_ycck = nj.is_ycck && nj.ncomp == 4;
         reuse.yuv_format = nj.get_yuv_format();
+        reuse.dht_hash = nj.dht_hash;
         std::swap(nj.comp, reuse.components);
+        std::swap(nj.huff_DC, reuse.huff_DC);
+        std::swap(nj.huff_AC, reuse.huff_AC);
         jpeg = nj.pos;
         size = nj.size;
     }

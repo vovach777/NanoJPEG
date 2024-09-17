@@ -300,12 +300,20 @@ int main(int argc, char **argv)
             int times = 0; // number of frames decoded
             std::ofstream fileyuv_file( std::string(argv[1]) + ".y4m", std::ios::binary | std::ios::out | std::ios::trunc);
             nanojpeg::nj_result frame{};
+            struct {
+                int frame_nb{};
+                size_t value{};
+            } prev_dht;
 
             while (size > 0)
             {
                 motion_time.start();
                 nanojpeg_motion_bench(motion_time, pos, size,frame);
                 motion_time.stop();
+                if (frame.dht_hash != prev_dht.value) {
+                        std::cout << "DHT frame #" << times << " = " << frame.dht_hash << std::endl;
+                        prev_dht = {times, frame.dht_hash};
+                }
                 times+=1;
                 if (times == 1) {
                     //header
