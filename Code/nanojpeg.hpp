@@ -392,7 +392,6 @@ namespace nanojpeg
         int rstinterval{};
         std::vector<HuffCode<4>> huff_DC{};
         std::vector<HuffCode<8>> huff_AC{};
-        std::vector<HuffCode<12>> huff_AC{};
         bool is_ycck{false}; // YCCK color space
 
         inline void allocate_pixels()
@@ -477,7 +476,6 @@ namespace nanojpeg
 
         inline void Skip(int count)
         {
-
             pos += count;
             size -= count;
             length -= count;
@@ -600,7 +598,6 @@ namespace nanojpeg
             DecodeLength();
             huff_DC.resize(2);
             huff_AC.resize(2);
-
             while (length >= 17)
             {
                 int i = pos[0];
