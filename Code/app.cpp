@@ -310,9 +310,9 @@ int main(int argc, char **argv)
                 if (times == 1) {
                     //header
                     if ( frame.yuv_format != 420 )
-                        fileyuv_file << "YUV4MPEG2 W" << frame.width << " H" << frame.height << " F25:1 It C" << frame.yuv_format <<  " XYSCSS=" << frame.yuv_format << " XCOLORRANGE=FULL\n";
+                        fileyuv_file << "YUV4MPEG2 W" << frame.width << " H" << frame.height << " F25:1 It A1:1 C" << frame.yuv_format <<  " XYSCSS=" << frame.yuv_format << " XCOLORRANGE=FULL\n";
                     else
-                        fileyuv_file << "YUV4MPEG2 W" << frame.width << " H" << frame.height << " F25:1 It C420jpeg XYSCSS=420JPEG XCOLORRANGE=FULL\n";
+                        fileyuv_file << "YUV4MPEG2 W" << frame.width << " H" << frame.height << " F25:1 It A1:1 C420jpeg XYSCSS=420JPEG XCOLORRANGE=FULL\n";
 
                 }
                 if (times % 100 == 0)
