@@ -198,7 +198,8 @@ namespace nanojpeg
 
         inline uint32_t peek()
         {
-            refill();
+            if (bits_valid<32)
+                refill();
             return bits >> 32;
         }
     };
@@ -800,8 +801,8 @@ namespace nanojpeg
                         for (auto &c : comp)
                             c.dcpred = 0; // reset DC prediction to 0
                     }
-                    }
                 }
+            }
             bitstream.refill();                      // refill buffer to make sure we have enough bits to read the last marker
             Skip(bitstream.ptr - pos);
             while ( size >= 2 &&  njDecode16(pos) == 0xffff ) Skip(1); // skip padding bytes before the last marker
