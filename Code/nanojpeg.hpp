@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
+#include <simd/simd.h>
 
 namespace nanojpeg
 {
@@ -96,20 +97,20 @@ namespace nanojpeg
         return (pos[0] << 8) | pos[1];
     }
 
-    inline void idct8(const float *s, float *d)
+    inline void idct8(const simd_float8 *s, simd_float8 *d)
     {
         /* Even part */
 
-        float tmp0 = s[0];
-        float tmp1 = s[2];
-        float tmp2 = s[4];
-        float tmp3 = s[6];
+        simd_float8 tmp0 = s[0];
+        simd_float8 tmp1 = s[2];
+        simd_float8 tmp2 = s[4];
+        simd_float8 tmp3 = s[6];
 
-        float tmp10 = tmp0 + tmp2; /* phase 3 */
-        float tmp11 = tmp0 - tmp2;
+        simd_float8 tmp10 = tmp0 + tmp2; /* phase 3 */
+        simd_float8 tmp11 = tmp0 - tmp2;
 
-        float tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
-        float tmp12 = (tmp1 - tmp3) * float(1.414213562) - tmp13; /* 2*c4 */
+        simd_float8 tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
+        simd_float8 tmp12 = (tmp1 - tmp3) * simd_float8(1.414213562) - tmp13; /* 2*c4 */
 
         tmp0 = tmp10 + tmp13; /* phase 2 */
         tmp3 = tmp10 - tmp13;
@@ -118,22 +119,22 @@ namespace nanojpeg
 
         /* Odd part */
 
-        float tmp4 = s[1];
-        float tmp5 = s[3];
-        float tmp6 = s[5];
-        float tmp7 = s[7];
+        simd_float8 tmp4 = s[1];
+        simd_float8 tmp5 = s[3];
+        simd_float8 tmp6 = s[5];
+        simd_float8 tmp7 = s[7];
 
-        float z13 = tmp6 + tmp5; /* phase 6 */
-        float z10 = tmp6 - tmp5;
-        float z11 = tmp4 + tmp7;
-        float z12 = tmp4 - tmp7;
+        simd_float8 z13 = tmp6 + tmp5; /* phase 6 */
+        simd_float8 z10 = tmp6 - tmp5;
+        simd_float8 z11 = tmp4 + tmp7;
+        simd_float8 z12 = tmp4 - tmp7;
 
         tmp7 = z11 + z13;                         /* phase 5 */
-        tmp11 = (z11 - z13) * float(1.414213562); /* 2*c4 */
+        tmp11 = (z11 - z13) * simd_float8(1.414213562); /* 2*c4 */
 
-        float z5 = (z10 + z12) * float(1.847759065); /* 2*c2 */
-        tmp10 = z5 - z12 * float(1.082392200);       /* 2*(c2-c6) */
-        tmp12 = z5 - z10 * float(2.613125930);       /* 2*(c2+c6) */
+        simd_float8 z5 = (z10 + z12) * simd_float8(1.847759065); /* 2*c2 */
+        tmp10 = z5 - z12 * simd_float8(1.082392200);       /* 2*(c2-c6) */
+        tmp12 = z5 - z10 * simd_float8(2.613125930);       /* 2*(c2+c6) */
 
         tmp6 = tmp12 - tmp7; /* phase 2 */
         tmp5 = tmp11 - tmp6;
@@ -146,6 +147,15 @@ namespace nanojpeg
         d[5 * 8] = (tmp2 - tmp5);
         d[6 * 8] = (tmp1 - tmp6);
         d[7 * 8] = (tmp0 - tmp7);
+    }
+
+    void idct8x8x8(simd_float8 *block) {
+        alignas(32) simd_float8 block_col[64];
+        for (int i = 0, j = 0; i < 64; i += 8, ++j)
+            idct8(block + i, block_col + j);
+
+        for (int i = 0, j = 0; i < 64; i += 8, ++j)
+            idct8(block_col + i, block + j);        
     }
 
     struct BitstreamContext
@@ -366,11 +376,56 @@ namespace nanojpeg
         int chroma_w_log2{};
         int chroma_h_log2{};
         int stride{};
-        int qtsel{};
-        int actabsel{}, dctabsel{};
+        // int qtsel{};
+        // int actabsel{}, dctabsel{};
+        float *qtab{};
+        HuffCode<4> *dc{};
+        HuffCode<8> *ac{};
         int dcpred{};
         int size{};
         std::vector<uint8_t> pixels{};
+        std::array<int16_t,64*8> macroblock{};
+        int pos{};
+        inline void njDecodeBlock(BitstreamContext &bs)
+        {
+            uint8_t code{};
+            // DC coef
+            dcpred += dc->njGetVLC(bs, code);
+            alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+                                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
+                                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+                                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+
+            macroblock[pos] = (dcpred);
+
+            int coef{0};
+
+            do
+            {
+                int value = ac->njGetVLC(bs, code);
+                if (!code)
+                    break; // EOB
+                if (!(code & 0x0F) && (code != 0xF0))
+                    njThrow(NJ_SYNTAX_ERROR);
+                coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
+                if (coef > 63)
+                {
+                    njThrow(NJ_SYNTAX_ERROR);
+                }
+                macroblock[ZZ[coef] + pos] = static_cast<int16_t>( value );
+            } while (coef < 63);
+            pos += 64;
+            if (pos == macroblock.size()) {
+                flush_macroblock();
+            }
+
+        }
+        void flush_macroblock()
+        {
+            std::fill(macroblock.begin(), macroblock.end(), 0);
+            pos = 0;
+        }
+
     };
 
     struct nj_context_t
@@ -383,13 +438,12 @@ namespace nanojpeg
         int mbsizex{}, mbsizey{};
         int ncomp{};
         std::vector<nj_component_t> comp{};
-        int qtused{}, qtavail{};
-        std::vector<std::array<float, 64>> qtab{};
+        std::array<std::array<float, 64>,4> qtab{};
         int rstinterval{};
         std::vector<HuffCode<4>> huff_DC{};
         std::vector<HuffCode<8>> huff_AC{};
         bool is_ycck{false}; // YCCK color space
-
+  
         inline void allocate_pixels()
         {
             for (auto &c : comp)
@@ -541,10 +595,10 @@ namespace nanojpeg
                     njThrow(NJ_SYNTAX_ERROR);
                 if (c.ssy & (c.ssy - 1))
                     njThrow(NJ_UNSUPPORTED); // non-power of two
-                if ((c.qtsel = pos[2]) & 0xFC)
+                if ((pos[2]) & 0xFC)
                     njThrow(NJ_SYNTAX_ERROR);
+                c.qtab = qtab[ pos[2] ].data();
                 Skip(3);
-                qtused |= 1 << c.qtsel;
                 if (c.ssx > ssxmax)
                     ssxmax = c.ssx;
                 if (c.ssy > ssymax)
@@ -641,13 +695,11 @@ namespace nanojpeg
                  118, 91, 49, 46, 81, 101, 101, 81,
                  46, 42, 69, 79, 69, 42, 35, 54,
                  54, 35, 28, 37, 28, 19, 19, 10};
-            qtab.resize(4);
             while (length >= 65)
             {
                 int i = pos[0];
                 if (i & 0xFC)
                     njThrow(NJ_SYNTAX_ERROR);
-                qtavail |= 1 << i;
                 auto p = pos + 1;
                 auto scale = AANDctScaleFactor;
                 for (auto &t : qtab.at(i))
@@ -667,71 +719,7 @@ namespace nanojpeg
             Skip(length);
         }
 
-        template <typename DCHuff, typename ACHuff, typename QTAB>
-        inline void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
-        {
-            alignas(16) float block[64]{};
-            alignas(16) float block_col[64];
-
-            uint8_t code{};
-            // DC coef
-            dcpred += dc.njGetVLC(bs, code);
-            alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
-                                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
-                                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
-                                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
-
-            block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
-
-            int coef{0};
-
-            do
-            {
-                int value = ac.njGetVLC(bs, code);
-                if (!code)
-                    break; // EOB
-                if (!(code & 0x0F) && (code != 0xF0))
-                    njThrow(NJ_SYNTAX_ERROR);
-                coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
-                if (coef > 63)
-                {
-                    njThrow(NJ_SYNTAX_ERROR);
-                }
-                block[ZZ[coef]] = value * qtab[coef]; // DCT coefficients scaling and quantization
-            } while (coef < 63);
-
-            if (coef)
-            {
-                for (int i = 0, j = 0; i < 64; i += 8, ++j)
-                    idct8(block + i, block_col + j);
-
-                for (int i = 0, j = 0; i < 64; i += 8, ++j)
-                    idct8(block_col + i, block + j);
-
-                for (int i = 0, j=0; i < 64; i += 8, j += stride)
-                {
-                    out[j]   = njClip(block[i]   + 128.5f);
-                    out[j+1] = njClip(block[i+1] + 128.5f);
-                    out[j+2] = njClip(block[i+2] + 128.5f);
-                    out[j+3] = njClip(block[i+3] + 128.5f);
-                    out[j+4] = njClip(block[i+4] + 128.5f);
-                    out[j+5] = njClip(block[i+5] + 128.5f);
-                    out[j+6] = njClip(block[i+6] + 128.5f);
-                    out[j+7] = njClip(block[i+7] + 128.5f);
-                }
-            }
-            else
-            { // only DC component
-                auto value = njClip(block[0] + 128.5f);
-
-                for (int i = 0; i < 8; ++i)
-                {
-                    std::fill(out, out + 8, value);
-                    out += stride; // next line
-                }
-            }
-        }
-
+       
         inline void DecodeScan()
         {
             DecodeLength();
@@ -746,8 +734,8 @@ namespace nanojpeg
                     njThrow(NJ_SYNTAX_ERROR);
                 if (pos[1] & 0xEE)
                     njThrow(NJ_SYNTAX_ERROR);
-                c.dctabsel = (pos[1] >> 4) & 1;
-                c.actabsel = (pos[1] & 1);
+                c.dc = &huff_DC[ (pos[1] >> 4) & 1 ];
+                c.ac = &huff_AC[ (pos[1] & 1) ];
                 Skip(2);
             }
 
@@ -765,15 +753,9 @@ namespace nanojpeg
 
                     for (auto &c : comp)
                     {
-                        const auto &ac = huff_AC[c.actabsel]; // AC table
-                        const auto &dc = huff_DC[c.dctabsel]; // DC table
-                        const auto &q = qtab[c.qtsel];        // quantization table
-
-                        for (int sby = 0; sby < c.ssy; ++sby)
-                            for (int sbx = 0; sbx < c.ssx; ++sbx)
-                            {
-                                njDecodeBlock(dc, ac, q, c.dcpred, bitstream, c.stride, c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
-                            }
+              
+                        for (int i = 0; i < c.ssy*c.ssx; ++i)
+                            c.njDecodeBlock(bitstream);
                     }
                     if (rstinterval && !(--rstcount) && ( mby != mbheight-1 ))
                     {

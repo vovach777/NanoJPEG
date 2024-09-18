@@ -5,7 +5,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 project(nanojpeg)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 
 add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
