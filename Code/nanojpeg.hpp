@@ -707,17 +707,16 @@ namespace nanojpeg
                 for (int i = 0, j = 0; i < 64; i += 8, ++j)
                     idct8(block_col + i, block + j);
 
-                const float *blk = block;
-                for (; blk != block + 64; out += stride - 8)
+                for (int i = 0, j=0; i < 64; i += 8, j += stride)
                 {
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
-                    *out++ = njClip(*blk++ + 128.5f);
+                    out[j]   = njClip(block[i]   + 128.5f);
+                    out[j+1] = njClip(block[i+1] + 128.5f);
+                    out[j+2] = njClip(block[i+2] + 128.5f);
+                    out[j+3] = njClip(block[i+3] + 128.5f);
+                    out[j+4] = njClip(block[i+4] + 128.5f);
+                    out[j+5] = njClip(block[i+5] + 128.5f);
+                    out[j+6] = njClip(block[i+6] + 128.5f);
+                    out[j+7] = njClip(block[i+7] + 128.5f);
                 }
             }
             else
