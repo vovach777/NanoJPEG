@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.2) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 3.3) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -30,11 +30,8 @@
 #include <array>
 #include <stdexcept>
 #include <cstdint>
-#include <climits>
 #include <cassert>
 #include <algorithm>
-#include <limits>
-#include <memory>
 
 namespace nanojpeg
 {
@@ -307,7 +304,7 @@ namespace nanojpeg
             return dht_size;
         }
 
-        inline uint16_t find_slow(const int peek) const noexcept
+        uint16_t find_slow(const int peek) const noexcept
         {
 
             for (auto it = abc_dht.cbegin() + bitseek[leading_ones(peek)]; it != abc_dht.cend(); ++it)
@@ -345,14 +342,12 @@ namespace nanojpeg
             code = uint8_t(symbolbit >> 8);
             uint32_t bits = code & 0xfU; // number of extra bits
 
-            peek <<= codelen; // remove the bits we just read from the peek buffer
-
             if (!bits)
             {
                 bs.skip(codelen); // skip the bits we just read
                 return 0;
             }
-
+            peek <<= codelen; // remove the bits we just read from the peek buffer
             int bitvalue = (peek >> (32U - bits));
             bs.skip(codelen + bits);
 

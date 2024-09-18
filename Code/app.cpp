@@ -346,7 +346,7 @@ int main(int argc, char **argv)
             std::cout << "* " << image.width << "x" << image.height << std::endl;
         }
 
-        int times = std::clamp(1024 * 1024 * 1024.0 / image.size,1.,2000.);
+        int times = std::clamp(1024 * 1024 * 256.0 / image.size,1.,10000.);
         std::cout << "Benchmarking repeats " << times << " times. Every dot is 100 frames." << std::endl;
 
         bool turbo_ok = true;
@@ -394,7 +394,7 @@ int main(int argc, char **argv)
 
         auto out_filename = std::string(argv[1]) + ".bmp";
 
-        std::cout << image.components.size() << " components" << std::endl;
+        std::cout << std::endl << "YUV -> RGB..." << std::flush;
         int comp_nb = std::min<int>(3, image.components.size());
         std::vector<uint8_t> rgb(image.width * image.height * comp_nb);
         convert_time.start();
@@ -403,8 +403,10 @@ int main(int argc, char **argv)
                 { return (int)comp[comp_n].pixels[y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)
                 { ((*rgb_out++ = args), ...); });
         convert_time.stop();
-        std::cout << "yuv to rgb time = " << convert_time.elapsed_str() << std::endl;
+        std::cout << std::endl << "time = " << convert_time.elapsed_str() << std::endl;
+        std::cout << "Creating " << out_filename << std::flush;
         stbi_write_bmp(out_filename.c_str(), image.width, image.height, comp_nb, rgb.data());
+        std::cout << std::endl;
     }
     catch (const std::exception &e)
     {
