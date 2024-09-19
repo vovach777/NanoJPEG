@@ -19,3 +19,6 @@ target_include_directories(nanojpeg PRIVATE ${Stb_INCLUDE_DIR})
 
 find_package(libjpeg-turbo CONFIG REQUIRED)
 target_link_libraries(nanojpeg PRIVATE libjpeg-turbo::turbojpeg-static)
+
+find_package(glm CONFIG REQUIRED)
+target_link_libraries(nanojpeg PRIVATE glm::glm)
