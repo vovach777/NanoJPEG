@@ -33,7 +33,7 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
-#include <glm/glm.hpp>
+#include "Vc"
 
 namespace nanojpeg
 {
@@ -98,19 +98,26 @@ namespace nanojpeg
         return (pos[0] << 8) | pos[1];
     }
 
-    template <typename LoadVec, typename StoreVec>
-    inline void idct8(LoadVec && ld, StoreVec && st)
+
+    using simd_float8 = Vc::float_v;
+
+   template <typename Load, typename Store>
+    inline void idct8(Load && ld, Store && st)
     {
-        glm::vec4 tmp0 = ld(0);
-        glm::vec4 tmp1 = ld(2);
-        glm::vec4 tmp2 = ld(4);
-        glm::vec4 tmp3 = ld(6);
+        /* Even part */
 
-        glm::vec4 tmp10 = tmp0 + tmp2; /* phase 3 */
-        glm::vec4 tmp11 = tmp0 - tmp2;
 
-        glm::vec4 tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
-        glm::vec4 tmp12 = (tmp1 - tmp3) * glm::vec4(1.414213562) - tmp13; /* 2*c4 */
+        simd_float8 tmp0,tmp1,tmp2,tmp3;
+        ld(0,tmp0);
+        ld(2,tmp1);
+        ld(4,tmp2);
+        ld(6,tmp3);
+
+        simd_float8 tmp10 = tmp0 + tmp2; /* phase 3 */
+        simd_float8 tmp11 = tmp0 - tmp2;
+
+        simd_float8 tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
+        simd_float8 tmp12 = (tmp1 - tmp3) * 1.414213562f - tmp13; /* 2*c4 */
 
         tmp0 = tmp10 + tmp13; /* phase 2 */
         tmp3 = tmp10 - tmp13;
@@ -119,98 +126,75 @@ namespace nanojpeg
 
         /* Odd part */
 
-        glm::vec4 tmp4 = ld(1);
-        glm::vec4 tmp5 = ld(3);
-        glm::vec4 tmp6 = ld(5);
-        glm::vec4 tmp7 = ld(7);
+        simd_float8 tmp4,tmp5,tmp6,tmp7;
 
-        glm::vec4 z13 = tmp6 + tmp5; /* phase 6 */
-        glm::vec4 z10 = tmp6 - tmp5;
-        glm::vec4 z11 = tmp4 + tmp7;
-        glm::vec4 z12 = tmp4 - tmp7;
+        ld(1,tmp4);
+        ld(3,tmp5);
+        ld(5,tmp6);
+        ld(7,tmp7);
+
+
+        simd_float8 z13 = tmp6 + tmp5; /* phase 6 */
+        simd_float8 z10 = tmp6 - tmp5;
+        simd_float8 z11 = tmp4 + tmp7;
+        simd_float8 z12 = tmp4 - tmp7;
 
         tmp7 = z11 + z13;                         /* phase 5 */
-        tmp11 = (z11 - z13) * glm::vec4(1.414213562); /* 2*c4 */
+        tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
 
-        glm::vec4 z5 = (z10 + z12) * glm::vec4(1.847759065); /* 2*c2 */
-        tmp10 = z5 - z12 * glm::vec4(1.082392200);       /* 2*(c2-c6) */
-        tmp12 = z5 - z10 * glm::vec4(2.613125930);       /* 2*(c2+c6) */
+        simd_float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
+        tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
+        tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
 
         tmp6 = tmp12 - tmp7; /* phase 2 */
         tmp5 = tmp11 - tmp6;
         tmp4 = tmp10 - tmp5;
-        st(0, (tmp0 + tmp7) );
-        st(1, (tmp1 + tmp6) );
-        st(2, (tmp2 + tmp5) );
-        st(3, (tmp3 + tmp4) );
-        st(4, (tmp3 - tmp4) );
-        st(5, (tmp2 - tmp5) );
-        st(6, (tmp1 - tmp6) );
-        st(7, (tmp0 - tmp7) );
+        st(tmp0 + tmp7, tmp1 + tmp6, tmp2 + tmp5, tmp3 + tmp4, tmp3 - tmp4, tmp2 - tmp5, tmp1 - tmp6, tmp0 - tmp7);
     }
 
-
-    // https://godbolt.org/z/qrYn7fbx1
-    static void idct8x8(float * block, uint8_t * out, int stride)
+    // https://godbolt.org/z/c7TrrrxK8
+    static void idct8x8(const float * block, uint8_t * out, int stride)
     {
-        alignas(16) glm::vec4 col[2][8];
+        alignas(32) simd_float8 col[8];
         idct8(
-            [&](int i)
-            {
-                return glm::vec4(block[i],block[i+1*8], block[i+2*8], block[i+3*8]);
-            },
-            [&](int i, auto && row4 )
-            {
-                    col[ i / 4][0][i % 4] = row4.r;
-                    col[ i / 4][1][i % 4] = row4.g;
-                    col[ i / 4][2][i % 4] = row4.b;
-                    col[ i / 4][3][i % 4] = row4.a;
-            }
+            [&]( int i,simd_float8 & reg ) {
+                for (int r = 0; r < 8; ++r )
+                    reg[r] = block[i+r*8];
 
-        );
-        idct8(
-            [&](int i)
-            {
-                return glm::vec4(block[i+4*8],block[i+5*8], block[i+6*8], block[i+7*8]);
             },
-            [&](int i, auto && row4 )
+            [&](auto... rows)
             {
-                    col[i/4][4][i%4] = row4.r;
-                    col[i/4][5][i%4] = row4.g;
-                    col[i/4][6][i%4] = row4.b;
-                    col[i/4][7][i%4] = row4.a;
+                int i=0;
+                for (const auto value : {rows...})
+                {
+                    for (int j=0; j<8; ++j)
+                        col[j][i] = value[j];
+                    ++i;
+                }
             }
-
-        );
+            );
         idct8(
-            [&](int i)
-            {
-                return col[0][i];
+            [&](int i, simd_float8 & reg) {
+                reg = col[i];
             },
-            [&](int i, glm::vec4 col4)
+            [&](auto... rows)
             {
-                col4 += 128.5f;
-                out[i*stride+0] = njClip(col4.r);
-                out[i*stride+1] = njClip(col4.g);
-                out[i*stride+2] = njClip(col4.b);
-                out[i*stride+3] = njClip(col4.a);
+                int i=0;
+                for (auto value : {rows...})
+                {
+                    value += 128.5f;
+                    for (int j=0; j < 8; ++j)
+                    {
+                        out[i*stride+j] = njClip(value[j]);
+                        //block[i*8+j] = value[j];
+                    }
+                    ++i;
+                }
             }
-        );
-        idct8(
-            [&](int i)
-            {
-                return col[1][i];
-            },
-            [&](int i, glm::vec4 col4)
-            {
-                col4 += 128.5f;
-                out[i*stride+4] = njClip(col4.r);
-                out[i*stride+5] = njClip(col4.g);
-                out[i*stride+6] = njClip(col4.b);
-                out[i*stride+7] = njClip(col4.a);
-            }
-        );
+            );
     }
+
+
 
     struct BitstreamContext
     {

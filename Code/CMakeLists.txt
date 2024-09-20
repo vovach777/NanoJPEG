@@ -11,7 +11,7 @@ add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 add_executable(nanojpeg app.cpp nanojpeg.hpp mio.hpp)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(nanojpeg PRIVATE -Ofast -flto)
+    target_compile_options(nanojpeg PRIVATE -Ofast -flto -mavx -march=ivybridge)
 endif()
 
 find_package(Stb REQUIRED)
@@ -20,5 +20,5 @@ target_include_directories(nanojpeg PRIVATE ${Stb_INCLUDE_DIR})
 find_package(libjpeg-turbo CONFIG REQUIRED)
 target_link_libraries(nanojpeg PRIVATE libjpeg-turbo::turbojpeg-static)
 
-find_package(glm CONFIG REQUIRED)
-target_link_libraries(nanojpeg PRIVATE glm::glm)
+#find_package(Vc CONFIG REQUIRED)
+#target_link_libraries(nanojpeg PRIVATE Vc::Vc)
