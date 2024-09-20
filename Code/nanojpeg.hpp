@@ -152,7 +152,7 @@ namespace nanojpeg
         st(tmp0 + tmp7, tmp1 + tmp6, tmp2 + tmp5, tmp3 + tmp4, tmp3 - tmp4, tmp2 - tmp5, tmp1 - tmp6, tmp0 - tmp7);
     }
 
-    // https://godbolt.org/z/c7TrrrxK8
+    // https://godbolt.org/z/E49bj4qGs
     static void idct8x8(const float * block, uint8_t * out, int stride)
     {
         alignas(32) simd_float8 col[8];
