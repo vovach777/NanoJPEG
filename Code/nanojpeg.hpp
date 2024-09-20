@@ -261,9 +261,9 @@ namespace nanojpeg
             uint16_t code;
             uint16_t symbolbit;
         };
-        alignas(16) std::array<DHTItem, 256> abc_dht{};
-        alignas(16) std::array<uint8_t, 17> bitseek{};
-        alignas(16) std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
+        alignas(32) std::array<DHTItem, 256> abc_dht{};
+        alignas(32) std::array<uint8_t, 17> bitseek{};
+        alignas(32) std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
 
         const uint8_t *dht{nullptr};
         int max_peek{0};
@@ -718,12 +718,12 @@ namespace nanojpeg
         template <typename DCHuff, typename ACHuff, typename QTAB>
         static void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
         {
-            alignas(16) float block[64]{};
+            alignas(32) float block[64]{};
 
             uint8_t code{};
             // DC coef
             dcpred += dc.njGetVLC(bs, code);
-            alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+            alignas(32) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
                                                        11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
                                                        42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
                                                        38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
