@@ -33,6 +33,7 @@
 #include <cassert>
 #include <algorithm>
 #include "Vc"
+#include <simde/x86/avx.h>
 
 namespace nanojpeg
 {
@@ -307,6 +308,9 @@ namespace nanojpeg
         }
     };
 
+    using HuffCodeDC = HuffCode<6>;
+    using HuffCodeAC = HuffCode<10>;
+
     struct nj_component_t
     {
         int cid{};
@@ -318,8 +322,8 @@ namespace nanojpeg
         // int qtsel{};
         // int actabsel{}, dctabsel{};
         float *qtab{};
-        HuffCode<4> *dc{};
-        HuffCode<8> *ac{};
+        HuffCodeDC *dc{};
+        HuffCodeAC *ac{};
         int dcpred{};
         int size{};
         std::vector<uint8_t> pixels{};
@@ -337,7 +341,7 @@ namespace nanojpeg
 
 
                 struct {
-                    __m256 r0,r1,r2,r3,r4,r5,r6,r7;
+                    simde__m256 r0,r1,r2,r3,r4,r5,r6,r7;
                 };
                 U(){}
                 U(float * b) {
@@ -345,103 +349,86 @@ namespace nanojpeg
                 }
 
                 // https://stackoverflow.com/a/25627536/1062758
-                static inline void transpose8_ps(__m256 &row0, __m256 &row1, __m256 &row2, __m256 &row3, __m256 &row4, __m256 &row5, __m256 &row6, __m256 &row7) {
-                __m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
-                __m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
-                __t0 = _mm256_unpacklo_ps(row0, row1);
-                __t1 = _mm256_unpackhi_ps(row0, row1);
-                __t2 = _mm256_unpacklo_ps(row2, row3);
-                __t3 = _mm256_unpackhi_ps(row2, row3);
-                __t4 = _mm256_unpacklo_ps(row4, row5);
-                __t5 = _mm256_unpackhi_ps(row4, row5);
-                __t6 = _mm256_unpacklo_ps(row6, row7);
-                __t7 = _mm256_unpackhi_ps(row6, row7);
-                __tt0 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
-                __tt1 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
-                __tt2 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
-                __tt3 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
-                __tt4 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
-                __tt5 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
-                __tt6 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
-                __tt7 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
-                row0 = _mm256_permute2f128_ps(__tt0, __tt4, 0x20);
-                row1 = _mm256_permute2f128_ps(__tt1, __tt5, 0x20);
-                row2 = _mm256_permute2f128_ps(__tt2, __tt6, 0x20);
-                row3 = _mm256_permute2f128_ps(__tt3, __tt7, 0x20);
-                row4 = _mm256_permute2f128_ps(__tt0, __tt4, 0x31);
-                row5 = _mm256_permute2f128_ps(__tt1, __tt5, 0x31);
-                row6 = _mm256_permute2f128_ps(__tt2, __tt6, 0x31);
-                row7 = _mm256_permute2f128_ps(__tt3, __tt7, 0x31);
-                }
-
                 inline void transpose() {
-                    transpose8_ps(r0,r1,r2,r3,r4,r5,r6,r7 );
+                    simde__m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
+                    simde__m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
+                    __t0 = simde_mm256_unpacklo_ps(r0, r1);
+                    __t1 = simde_mm256_unpackhi_ps(r0, r1);
+                    __t2 = simde_mm256_unpacklo_ps(r2, r3);
+                    __t3 = simde_mm256_unpackhi_ps(r2, r3);
+                    __t4 = simde_mm256_unpacklo_ps(r4, r5);
+                    __t5 = simde_mm256_unpackhi_ps(r4, r5);
+                    __t6 = simde_mm256_unpacklo_ps(r6, r7);
+                    __t7 = simde_mm256_unpackhi_ps(r6, r7);
+                    __tt0 = simde_mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
+                    __tt1 = simde_mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
+                    __tt2 = simde_mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
+                    __tt3 = simde_mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
+                    __tt4 = simde_mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
+                    __tt5 = simde_mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
+                    __tt6 = simde_mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
+                    __tt7 = simde_mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
+                    r0 = simde_mm256_permute2f128_ps(__tt0, __tt4, 0x20);
+                    r1 = simde_mm256_permute2f128_ps(__tt1, __tt5, 0x20);
+                    r2 = simde_mm256_permute2f128_ps(__tt2, __tt6, 0x20);
+                    r3 = simde_mm256_permute2f128_ps(__tt3, __tt7, 0x20);
+                    r4 = simde_mm256_permute2f128_ps(__tt0, __tt4, 0x31);
+                    r5 = simde_mm256_permute2f128_ps(__tt1, __tt5, 0x31);
+                    r6 = simde_mm256_permute2f128_ps(__tt2, __tt6, 0x31);
+                    r7 = simde_mm256_permute2f128_ps(__tt3, __tt7, 0x31);
                 }
 
-                static inline void idct8(simd_float8 &r0,simd_float8 &r1, simd_float8 &r2, simd_float8 &r3, simd_float8 &r4, simd_float8 &r5, simd_float8 &r6, simd_float8 &r7 )
+                inline void idct8()
                 {
                     /* Even part */
 
+                    simd_float8 tmp10 = v0 + v4; /* phase 3 */
+                    simd_float8 tmp11 = v0 - v4;
 
-                    simd_float8 tmp0{r0},tmp1{r2},tmp2{r4},tmp3{r6};
+                    simd_float8 tmp13 = v2 + v6;                                /* phases 5-3 */
+                    simd_float8 tmp12 = (v2 - v6) * 1.414213562f - tmp13; /* 2*c4 */
 
-                    simd_float8 tmp10 = tmp0 + tmp2; /* phase 3 */
-                    simd_float8 tmp11 = tmp0 - tmp2;
-
-                    simd_float8 tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
-                    simd_float8 tmp12 = (tmp1 - tmp3) * 1.414213562f - tmp13; /* 2*c4 */
-
-                    tmp0 = tmp10 + tmp13; /* phase 2 */
-                    tmp3 = tmp10 - tmp13;
-                    tmp1 = tmp11 + tmp12;
-                    tmp2 = tmp11 - tmp12;
+                    simd_float8 tmp0 = tmp10 + tmp13; /* phase 2 */
+                    simd_float8 tmp3 = tmp10 - tmp13;
+                    simd_float8 tmp1 = tmp11 + tmp12;
+                    simd_float8 tmp2 = tmp11 - tmp12;
 
                     /* Odd part */
 
-                    simd_float8 tmp4,tmp5,tmp6,tmp7;
-                    tmp4 = r1;
-                    tmp5 = r3;
-                    tmp6 = r5;
-                    tmp7 = r7;
+                    simd_float8 z13 = v5 + v3; /* phase 6 */
+                    simd_float8 z10 = v5 - v3;
+                    simd_float8 z11 = v1 + v7;
+                    simd_float8 z12 = v1 - v7;
 
-                    simd_float8 z13 = tmp6 + tmp5; /* phase 6 */
-                    simd_float8 z10 = tmp6 - tmp5;
-                    simd_float8 z11 = tmp4 + tmp7;
-                    simd_float8 z12 = tmp4 - tmp7;
-
-                    tmp7 = z11 + z13;                         /* phase 5 */
+                    simd_float8 tmp7 = z11 + z13;                         /* phase 5 */
                     tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
 
                     simd_float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
                     tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
                     tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
 
-                    tmp6 = tmp12 - tmp7; /* phase 2 */
-                    tmp5 = tmp11 - tmp6;
-                    tmp4 = tmp10 - tmp5;
-                    r0 = tmp0 + tmp7;
-                    r1 = tmp1 + tmp6;
-                    r2 = tmp2 + tmp5;
-                    r3 = tmp3 + tmp4;
-                    r4 = tmp3 - tmp4;
-                    r5 = tmp2 - tmp5;
-                    r6 = tmp1 - tmp6;
-                    r7 = tmp0 - tmp7;
+                    simd_float8 tmp6 = tmp12 - tmp7; /* phase 2 */
+                    simd_float8 tmp5 = tmp11 - tmp6;
+                    simd_float8 tmp4 = tmp10 - tmp5;
+                    v0 = tmp0 + tmp7;
+                    v1 = tmp1 + tmp6;
+                    v2 = tmp2 + tmp5;
+                    v3 = tmp3 + tmp4;
+                    v4 = tmp3 - tmp4;
+                    v5 = tmp2 - tmp5;
+                    v6 = tmp1 - tmp6;
+                    v7 = tmp0 - tmp7;
                 }
 
                 inline void inv1d() {
-                    idct8(v0,v1,v2,v3,v4,v5,v6,v7);
+                    idct8();
                 }
-                inline void inv2d() {
+                void inv2d() {
                     //transpose(); //this transpose moved out to a ZZ order
                     inv1d();
                     transpose();
                     inv1d();
                 }
-                inline void copy_to(float * b) {
-                    std::copy(blk, blk+64, b);
-                }
-
             } block{};
 
             uint8_t code{};
@@ -528,8 +515,8 @@ namespace nanojpeg
         //int qtused{}, qtavail{};
         std::vector<std::array<float, 64>> qtab{};
         int rstinterval{};
-        std::vector<HuffCode<4>> huff_DC{};
-        std::vector<HuffCode<8>> huff_AC{};
+        std::vector<HuffCodeDC> huff_DC{};
+        std::vector<HuffCodeAC> huff_AC{};
         bool is_ycck{false}; // YCCK color space
 
         inline void allocate_pixels()

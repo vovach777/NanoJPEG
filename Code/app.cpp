@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <optional>
 #include "nanojpeg.hpp"
-#include "mio.hpp"
+#include <mio/mmap.hpp>
 #include <algorithm>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
