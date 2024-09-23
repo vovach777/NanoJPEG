@@ -433,7 +433,7 @@ namespace nanojpeg
                     idct8(v0,v1,v2,v3,v4,v5,v6,v7);
                 }
                 inline void inv2d() {
-                    //transpose();
+                    //transpose(); //this transpose moved out to a ZZ order
                     inv1d();
                     transpose();
                     inv1d();

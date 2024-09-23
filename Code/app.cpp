@@ -251,12 +251,12 @@ static void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *&buf, size_t 
 }
 
 
-inline void print_stat(std::string title, double elapsed, double imgMPixSize, size_t imgSize, int times)
+inline void print_stat(std::string title, double elapsed, double imgMPixSize, size_t streamSize, int times)
 {
     std::cout << "** " << title << " **" << std::endl;
     std::cout << "time   = " << std::fixed << std::setprecision(9) << (elapsed / times) << " seconds" << std::endl;
     std::cout << "images = " << std::fixed << std::setprecision(3) << (times / elapsed) << " fps" << std::endl;
-    std::cout << "bytes  = " << std::fixed << std::setprecision(2) << (imgSize * times / (1024.0 * 1024.0) / elapsed) << " MB/s" << std::endl;
+    std::cout << "bytes  = " << std::fixed << std::setprecision(2) << (streamSize / (1024.0 * 1024.0) / elapsed) << " MB/s" << std::endl;
     std::cout << "pixels = " << std::fixed << std::setprecision(2) << (imgMPixSize * double(times) / elapsed) << " MPix/s" << std::endl;
     std::cout << std::endl;
 }
@@ -383,12 +383,12 @@ int main(int argc, char **argv)
         std::cout << "image  = " << image.width << "x" << image.height << " (" << std::fixed << std::setprecision(1) << imgMPixSize << " MPix)" << std::endl;
         if (turbo_ok)
         {
-            print_stat("jpeg-turbo", tjtime.elapsed(), imgMPixSize, image.size, times);
-            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elapsed(), imgMPixSize, image.size, times);
+            print_stat("jpeg-turbo", tjtime.elapsed(), imgMPixSize, image.size * times, times);
+            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elapsed(), imgMPixSize* times, image.size, times);
             std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / tjtime_fast.elapsed()) << "x" << std::endl;
 
         }
-        print_stat("nanojpeg", njtime.elapsed(), imgMPixSize, image.size, times);
+        print_stat("nanojpeg", njtime.elapsed(), imgMPixSize * times, image.size, times);
         if (turbo_ok)
             std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / njtime.elapsed()) << "x" << std::endl;
 
