@@ -98,104 +98,6 @@ namespace nanojpeg
         return (pos[0] << 8) | pos[1];
     }
 
-
-    using simd_float8 = Vc::float_v;
-
-   template <typename Load, typename Store>
-    inline void idct8(Load && ld, Store && st)
-    {
-        /* Even part */
-
-
-        simd_float8 tmp0,tmp1,tmp2,tmp3;
-        ld(0,tmp0);
-        ld(2,tmp1);
-        ld(4,tmp2);
-        ld(6,tmp3);
-
-        simd_float8 tmp10 = tmp0 + tmp2; /* phase 3 */
-        simd_float8 tmp11 = tmp0 - tmp2;
-
-        simd_float8 tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
-        simd_float8 tmp12 = (tmp1 - tmp3) * 1.414213562f - tmp13; /* 2*c4 */
-
-        tmp0 = tmp10 + tmp13; /* phase 2 */
-        tmp3 = tmp10 - tmp13;
-        tmp1 = tmp11 + tmp12;
-        tmp2 = tmp11 - tmp12;
-
-        /* Odd part */
-
-        simd_float8 tmp4,tmp5,tmp6,tmp7;
-
-        ld(1,tmp4);
-        ld(3,tmp5);
-        ld(5,tmp6);
-        ld(7,tmp7);
-
-
-        simd_float8 z13 = tmp6 + tmp5; /* phase 6 */
-        simd_float8 z10 = tmp6 - tmp5;
-        simd_float8 z11 = tmp4 + tmp7;
-        simd_float8 z12 = tmp4 - tmp7;
-
-        tmp7 = z11 + z13;                         /* phase 5 */
-        tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
-
-        simd_float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
-        tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
-        tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
-
-        tmp6 = tmp12 - tmp7; /* phase 2 */
-        tmp5 = tmp11 - tmp6;
-        tmp4 = tmp10 - tmp5;
-        st(tmp0 + tmp7, tmp1 + tmp6, tmp2 + tmp5, tmp3 + tmp4, tmp3 - tmp4, tmp2 - tmp5, tmp1 - tmp6, tmp0 - tmp7);
-    }
-
-    // https://godbolt.org/z/E49bj4qGs
-    static void idct8x8(const float * block, uint8_t * out, int stride)
-    {
-        alignas(32) simd_float8 col[8];
-        idct8(
-            [&]( int i,simd_float8 & reg ) {
-                for (int r = 0; r < 8; ++r )
-                    reg[r] = block[i+r*8];
-
-            },
-            [&](auto... rows)
-            {
-                int i=0;
-                for (const auto value : {rows...})
-                {
-                    for (int j=0; j<8; ++j)
-                        col[j][i] = value[j];
-                    ++i;
-                }
-            }
-            );
-        idct8(
-            [&](int i, simd_float8 & reg) {
-                reg = col[i];
-            },
-            [&](auto... rows)
-            {
-                int i=0;
-                for (auto value : {rows...})
-                {
-                    value += 128.5f;
-                    for (int j=0; j < 8; ++j)
-                    {
-                        out[i*stride+j] = njClip(value[j]);
-                        //block[i*8+j] = value[j];
-                    }
-                    ++i;
-                }
-            }
-            );
-    }
-
-
-
     struct BitstreamContext
     {
 
@@ -718,15 +620,145 @@ namespace nanojpeg
         template <typename DCHuff, typename ACHuff, typename QTAB>
         static void njDecodeBlock(DCHuff &&dc, ACHuff &&ac, QTAB &&qtab, int &dcpred, BitstreamContext &bs, int stride, uint8_t *out)
         {
-            alignas(32) float block[64]{};
+
+            alignas(32) union U{
+            using simd_float8 = Vc::AVX::float_v;
+            float blk[64]{};
+            struct {
+                simd_float8 v0,v1,v2,v3,v4,v5,v6,v7;
+            };
+            inline float operator[ ](int i) const noexcept { return blk[i]; }
+            inline float& operator[ ](int i) noexcept { return blk[i]; }
+
+
+            struct {
+                __m256 r0,r1,r2,r3,r4,r5,r6,r7;
+            };
+            U(){}
+            U(float * b) {
+             std::copy(b, b+64, blk);
+            }
+
+            // https://stackoverflow.com/a/25627536/1062758
+            static inline void transpose8_ps(__m256 &row0, __m256 &row1, __m256 &row2, __m256 &row3, __m256 &row4, __m256 &row5, __m256 &row6, __m256 &row7) {
+            __m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
+            __m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
+            __t0 = _mm256_unpacklo_ps(row0, row1);
+            __t1 = _mm256_unpackhi_ps(row0, row1);
+            __t2 = _mm256_unpacklo_ps(row2, row3);
+            __t3 = _mm256_unpackhi_ps(row2, row3);
+            __t4 = _mm256_unpacklo_ps(row4, row5);
+            __t5 = _mm256_unpackhi_ps(row4, row5);
+            __t6 = _mm256_unpacklo_ps(row6, row7);
+            __t7 = _mm256_unpackhi_ps(row6, row7);
+            __tt0 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
+            __tt1 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
+            __tt2 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
+            __tt3 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
+            __tt4 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
+            __tt5 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
+            __tt6 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
+            __tt7 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
+            row0 = _mm256_permute2f128_ps(__tt0, __tt4, 0x20);
+            row1 = _mm256_permute2f128_ps(__tt1, __tt5, 0x20);
+            row2 = _mm256_permute2f128_ps(__tt2, __tt6, 0x20);
+            row3 = _mm256_permute2f128_ps(__tt3, __tt7, 0x20);
+            row4 = _mm256_permute2f128_ps(__tt0, __tt4, 0x31);
+            row5 = _mm256_permute2f128_ps(__tt1, __tt5, 0x31);
+            row6 = _mm256_permute2f128_ps(__tt2, __tt6, 0x31);
+            row7 = _mm256_permute2f128_ps(__tt3, __tt7, 0x31);
+            }
+
+            inline void transpose() {
+                transpose8_ps(r0,r1,r2,r3,r4,r5,r6,r7 );
+            }
+
+            static inline void idct8(simd_float8 &r0,simd_float8 &r1, simd_float8 &r2, simd_float8 &r3, simd_float8 &r4, simd_float8 &r5, simd_float8 &r6, simd_float8 &r7 )
+            {
+                /* Even part */
+
+
+                simd_float8 tmp0{r0},tmp1{r2},tmp2{r4},tmp3{r6};
+
+                simd_float8 tmp10 = tmp0 + tmp2; /* phase 3 */
+                simd_float8 tmp11 = tmp0 - tmp2;
+
+                simd_float8 tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
+                simd_float8 tmp12 = (tmp1 - tmp3) * 1.414213562f - tmp13; /* 2*c4 */
+
+                tmp0 = tmp10 + tmp13; /* phase 2 */
+                tmp3 = tmp10 - tmp13;
+                tmp1 = tmp11 + tmp12;
+                tmp2 = tmp11 - tmp12;
+
+                /* Odd part */
+
+                simd_float8 tmp4,tmp5,tmp6,tmp7;
+                tmp4 = r1;
+                tmp5 = r3;
+                tmp6 = r5;
+                tmp7 = r7;
+
+                simd_float8 z13 = tmp6 + tmp5; /* phase 6 */
+                simd_float8 z10 = tmp6 - tmp5;
+                simd_float8 z11 = tmp4 + tmp7;
+                simd_float8 z12 = tmp4 - tmp7;
+
+                tmp7 = z11 + z13;                         /* phase 5 */
+                tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
+
+                simd_float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
+                tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
+                tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
+
+                tmp6 = tmp12 - tmp7; /* phase 2 */
+                tmp5 = tmp11 - tmp6;
+                tmp4 = tmp10 - tmp5;
+                r0 = tmp0 + tmp7;
+                r1 = tmp1 + tmp6;
+                r2 = tmp2 + tmp5;
+                r3 = tmp3 + tmp4;
+                r4 = tmp3 - tmp4;
+                r5 = tmp2 - tmp5;
+                r6 = tmp1 - tmp6;
+                r7 = tmp0 - tmp7;
+            }
+
+            inline void inv1d() {
+                idct8(v0,v1,v2,v3,v4,v5,v6,v7);
+            }
+            inline void inv2d() {
+                //transpose();
+                inv1d();
+                transpose();
+                inv1d();
+            }
+            inline void copy_to(float * b) {
+                std::copy(blk, blk+64, b);
+            }
+
+        } block{};
 
             uint8_t code{};
             // DC coef
             dcpred += dc.njGetVLC(bs, code);
-            alignas(32) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+
+
+              alignas(32) static const auto ZZ = [] {
+                        std::array<uint8_t, 64> zz_t{ 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
                                                        11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
                                                        42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
                                                        38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+                        for (int i = 0; i < 64; i++)
+                        {
+                            int col = zz_t[i] % 8;
+                            int row = zz_t[i] / 8;
+                            std::swap(col,row); // transpose
+                            zz_t[i] = row * 8 + col; // transpose back to row-major order
+                        }
+                        return zz_t;
+
+                        }();
 
             block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
 
@@ -749,19 +781,20 @@ namespace nanojpeg
 
             if (coef)
             {
-                idct8x8(block, out, stride);
 
-                // for (int i = 0, j=0; i < 64; i += 8, j += stride)
-                // {
-                //     out[j]   = njClip(block[i]   + 128.5f);
-                //     out[j+1] = njClip(block[i+1] + 128.5f);
-                //     out[j+2] = njClip(block[i+2] + 128.5f);
-                //     out[j+3] = njClip(block[i+3] + 128.5f);
-                //     out[j+4] = njClip(block[i+4] + 128.5f);
-                //     out[j+5] = njClip(block[i+5] + 128.5f);
-                //     out[j+6] = njClip(block[i+6] + 128.5f);
-                //     out[j+7] = njClip(block[i+7] + 128.5f);
-                // }
+                block.inv2d();
+
+                for (int i = 0, j=0; i < 64; i += 8, j += stride)
+                {
+                    out[j]   = njClip(block[i]   + 128.5f);
+                    out[j+1] = njClip(block[i+1] + 128.5f);
+                    out[j+2] = njClip(block[i+2] + 128.5f);
+                    out[j+3] = njClip(block[i+3] + 128.5f);
+                    out[j+4] = njClip(block[i+4] + 128.5f);
+                    out[j+5] = njClip(block[i+5] + 128.5f);
+                    out[j+6] = njClip(block[i+6] + 128.5f);
+                    out[j+7] = njClip(block[i+7] + 128.5f);
+                }
             }
             else
             { // only DC component
