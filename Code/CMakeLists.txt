@@ -8,7 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 
-add_executable(nanojpeg app.cpp nanojpeg.hpp Vc)
+add_executable(nanojpeg app.cpp nanojpeg.hpp)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(nanojpeg PRIVATE -Ofast -flto -mavx -march=ivybridge -fopenmp-simd)
