@@ -311,8 +311,8 @@ namespace nanojpeg
         }
     };
 
-    using HuffCodeDC = HuffCode<6>;
-    using HuffCodeAC = HuffCode<10>;
+    using HuffCodeDC = HuffCode<4>;
+    using HuffCodeAC = HuffCode<8>;
 
     struct nj_component_t
     {
