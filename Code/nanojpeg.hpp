@@ -32,9 +32,10 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
-//#include "Vc"
+#ifdef HAS_XSIMD
 #include <xsimd/xsimd.hpp>
 namespace xs = xsimd;
+#endif
 #include <simde/x86/avx.h>
 
 namespace nanojpeg
@@ -329,17 +330,17 @@ namespace nanojpeg
         int dcpred{};
         int size{};
         std::vector<uint8_t> pixels{};
-        inline void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
+        void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
         {
 
-                alignas(32) union U{
-
-                //using simd_float8 = Vc::AVX::float_v;
-                using simd_float8 = xs::batch<float, xs::avx>;
+                union alignas(32) U{
                 float blk[64]{};
+#ifdef HAS_XSIMD
+                using simd_float8 = xs::batch<float, xs::avx>;
                 struct {
                     simd_float8 v0,v1,v2,v3,v4,v5,v6,v7;
                 };
+#endif
                 inline float operator[ ](int i) const noexcept { return blk[i]; }
                 inline float& operator[ ](int i) noexcept { return blk[i]; }
 
@@ -382,6 +383,8 @@ namespace nanojpeg
                     r7 = simde_mm256_permute2f128_ps(__tt3, __tt7, 0x31);
                 }
 
+                #ifdef HAS_XSIMD
+
                 inline void idct8()
                 {
                     /* Even part */
@@ -423,15 +426,55 @@ namespace nanojpeg
                     v6 = tmp1 - tmp6;
                     v7 = tmp0 - tmp7;
                 }
+                #else
+                inline void idct8() {
+                    /* Even part */
 
-                inline void inv1d() {
-                    idct8();
+                    simde__m256 tmp10 = simde_mm256_add_ps(r0, r4); /* phase 3 */
+                    simde__m256 tmp11 = simde_mm256_sub_ps(r0, r4);
+
+                    simde__m256 tmp13 = simde_mm256_add_ps(r2, r6); /* phases 5-3 */
+                    simde__m256 tmp12 = simde_mm256_sub_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(r2, r6), simde_mm256_set1_ps(1.414213562f)), tmp13); /* 2*c4 */
+
+                    simde__m256 tmp0 = simde_mm256_add_ps(tmp10, tmp13); /* phase 2 */
+                    simde__m256 tmp3 = simde_mm256_sub_ps(tmp10, tmp13);
+                    simde__m256 tmp1 = simde_mm256_add_ps(tmp11, tmp12);
+                    simde__m256 tmp2 = simde_mm256_sub_ps(tmp11, tmp12);
+
+                    /* Odd part */
+
+                    simde__m256 z13 = simde_mm256_add_ps(r5, r3); /* phase 6 */
+                    simde__m256 z10 = simde_mm256_sub_ps(r5, r3);
+                    simde__m256 z11 = simde_mm256_add_ps(r1, r7);
+                    simde__m256 z12 = simde_mm256_sub_ps(r1, r7);
+
+                    simde__m256 tmp7 = simde_mm256_add_ps(z11, z13); /* phase 5 */
+                    tmp11 = simde_mm256_mul_ps(simde_mm256_sub_ps(z11, z13), simde_mm256_set1_ps(1.414213562f)); /* 2*c4 */
+
+                    simde__m256 z5 = simde_mm256_mul_ps(simde_mm256_add_ps(z10, z12), simde_mm256_set1_ps(1.847759065f)); /* 2*c2 */
+                    tmp10 = simde_mm256_sub_ps(z5, simde_mm256_mul_ps(z12, simde_mm256_set1_ps(1.082392200f))); /* 2*(c2-c6) */
+                    tmp12 = simde_mm256_sub_ps(z5, simde_mm256_mul_ps(z10, simde_mm256_set1_ps(2.613125930f))); /* 2*(c2+c6) */
+
+                    simde__m256 tmp6 = simde_mm256_sub_ps(tmp12, tmp7); /* phase 2 */
+                    simde__m256 tmp5 = simde_mm256_sub_ps(tmp11, tmp6);
+                    simde__m256 tmp4 = simde_mm256_sub_ps(tmp10, tmp5);
+
+                    r0 = simde_mm256_add_ps(tmp0, tmp7);
+                    r1 = simde_mm256_add_ps(tmp1, tmp6);
+                    r2 = simde_mm256_add_ps(tmp2, tmp5);
+                    r3 = simde_mm256_add_ps(tmp3, tmp4);
+                    r4 = simde_mm256_sub_ps(tmp3, tmp4);
+                    r5 = simde_mm256_sub_ps(tmp2, tmp5);
+                    r6 = simde_mm256_sub_ps(tmp1, tmp6);
+                    r7 = simde_mm256_sub_ps(tmp0, tmp7);
                 }
+                #endif
+
                 void inv2d() {
                     //transpose(); //this transpose moved out to a ZZ order
-                    inv1d();
+                    idct8();
                     transpose();
-                    inv1d();
+                    idct8();
                 }
             } block{};
 

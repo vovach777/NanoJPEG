@@ -384,11 +384,11 @@ int main(int argc, char **argv)
         if (turbo_ok)
         {
             print_stat("jpeg-turbo", tjtime.elapsed(), imgMPixSize, image.size * times, times);
-            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elapsed(), imgMPixSize* times, image.size, times);
+            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elapsed(), imgMPixSize, image.size * times, times);
             std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / tjtime_fast.elapsed()) << "x" << std::endl;
 
         }
-        print_stat("nanojpeg", njtime.elapsed(), imgMPixSize * times, image.size, times);
+        print_stat("nanojpeg", njtime.elapsed(), imgMPixSize, image.size * times, times);
         if (turbo_ok)
             std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / njtime.elapsed()) << "x" << std::endl;
 
