@@ -26,5 +26,8 @@ target_link_libraries(nanojpeg PRIVATE mio::mio)
 # find_package(Vc CONFIG REQUIRED)
 # target_link_libraries(nanojpeg PRIVATE Vc::Vc)
 
+find_package(xsimd CONFIG REQUIRED)
+target_link_libraries(nanojpeg PRIVATE xsimd)
+
 find_path(SIMDE_INCLUDE_DIRS "simde/x86/avx.h")
 target_include_directories(nanojpeg PRIVATE ${SIMDE_INCLUDE_DIRS})

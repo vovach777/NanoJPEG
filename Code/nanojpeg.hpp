@@ -32,7 +32,9 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
-#include "Vc"
+//#include "Vc"
+#include <xsimd/xsimd.hpp>
+namespace xs = xsimd;
 #include <simde/x86/avx.h>
 
 namespace nanojpeg
@@ -331,7 +333,9 @@ namespace nanojpeg
         {
 
                 alignas(32) union U{
-                using simd_float8 = Vc::AVX::float_v;
+
+                //using simd_float8 = Vc::AVX::float_v;
+                using simd_float8 = xs::batch<float, xs::avx>;
                 float blk[64]{};
                 struct {
                     simd_float8 v0,v1,v2,v3,v4,v5,v6,v7;
