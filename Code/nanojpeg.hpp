@@ -382,9 +382,7 @@ namespace nanojpeg
                     r6 = simde_mm256_permute2f128_ps(__tt2, __tt6, 0x31);
                     r7 = simde_mm256_permute2f128_ps(__tt3, __tt7, 0x31);
                 }
-
-                #ifdef HAS_XSIMD
-
+#ifdef HAS_XSIMD
                 inline void idct8()
                 {
                     /* Even part */
@@ -426,7 +424,7 @@ namespace nanojpeg
                     v6 = tmp1 - tmp6;
                     v7 = tmp0 - tmp7;
                 }
-                #else
+#else
                 inline void idct8() {
                     /* Even part */
 
@@ -468,7 +466,7 @@ namespace nanojpeg
                     r6 = simde_mm256_sub_ps(tmp1, tmp6);
                     r7 = simde_mm256_sub_ps(tmp0, tmp7);
                 }
-                #endif
+#endif
 
                 void inv2d() {
                     //transpose(); //this transpose moved out to a ZZ order
