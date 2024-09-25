@@ -32,11 +32,6 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
-#ifdef HAS_XSIMD
-#include <xsimd/xsimd.hpp>
-namespace xs = xsimd;
-#endif
-#include <simde/x86/avx.h>
 
 namespace nanojpeg
 {
@@ -99,6 +94,58 @@ namespace nanojpeg
     inline int njDecode16(const uint8_t *pos)
     {
         return (pos[0] << 8) | pos[1];
+    }
+
+    inline void idct8(const float *s, float *d)
+    {
+        /* Even part */
+
+        float tmp0 = s[0];
+        float tmp1 = s[2];
+        float tmp2 = s[4];
+        float tmp3 = s[6];
+
+        float tmp10 = tmp0 + tmp2; /* phase 3 */
+        float tmp11 = tmp0 - tmp2;
+
+        float tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
+        float tmp12 = (tmp1 - tmp3) * float(1.414213562) - tmp13; /* 2*c4 */
+
+        tmp0 = tmp10 + tmp13; /* phase 2 */
+        tmp3 = tmp10 - tmp13;
+        tmp1 = tmp11 + tmp12;
+        tmp2 = tmp11 - tmp12;
+
+        /* Odd part */
+
+        float tmp4 = s[1];
+        float tmp5 = s[3];
+        float tmp6 = s[5];
+        float tmp7 = s[7];
+
+        float z13 = tmp6 + tmp5; /* phase 6 */
+        float z10 = tmp6 - tmp5;
+        float z11 = tmp4 + tmp7;
+        float z12 = tmp4 - tmp7;
+
+        tmp7 = z11 + z13;                         /* phase 5 */
+        tmp11 = (z11 - z13) * float(1.414213562); /* 2*c4 */
+
+        float z5 = (z10 + z12) * float(1.847759065); /* 2*c2 */
+        tmp10 = z5 - z12 * float(1.082392200);       /* 2*(c2-c6) */
+        tmp12 = z5 - z10 * float(2.613125930);       /* 2*(c2+c6) */
+
+        tmp6 = tmp12 - tmp7; /* phase 2 */
+        tmp5 = tmp11 - tmp6;
+        tmp4 = tmp10 - tmp5;
+        d[0 * 8] = (tmp0 + tmp7);
+        d[1 * 8] = (tmp1 + tmp6);
+        d[2 * 8] = (tmp2 + tmp5);
+        d[3 * 8] = (tmp3 + tmp4);
+        d[4 * 8] = (tmp3 - tmp4);
+        d[5 * 8] = (tmp2 - tmp5);
+        d[6 * 8] = (tmp1 - tmp6);
+        d[7 * 8] = (tmp0 - tmp7);
     }
 
     struct BitstreamContext
@@ -166,9 +213,9 @@ namespace nanojpeg
             uint16_t code;
             uint16_t symbolbit;
         };
-        alignas(32) std::array<DHTItem, 256> abc_dht{};
-        alignas(32) std::array<uint8_t, 17> bitseek{};
-        alignas(32) std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
+        alignas(16) std::array<DHTItem, 256> abc_dht{};
+        alignas(16) std::array<uint8_t, 17> bitseek{};
+        alignas(16) std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
 
         const uint8_t *dht{nullptr};
         int max_peek{0};
@@ -332,169 +379,16 @@ namespace nanojpeg
         std::vector<uint8_t> pixels{};
         void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
         {
-
-                union alignas(32) U{
-                float blk[64]{};
-#ifdef HAS_XSIMD
-                using simd_float8 = xs::batch<float, xs::avx>;
-                struct {
-                    simd_float8 v0,v1,v2,v3,v4,v5,v6,v7;
-                };
-#endif
-                struct {
-                    simde__m256 r0,r1,r2,r3,r4,r5,r6,r7;
-                };
-                U(){}
-                U(float * b) {
-                std::copy(b, b+64, blk);
-                }
-
-                inline float operator[](int i) const noexcept { return blk[i]; }
-                inline float& operator[](int i) noexcept { return blk[i]; }
-
-                // https://stackoverflow.com/a/25627536/1062758
-                inline void transpose() {
-                    simde__m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
-                    simde__m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
-                    __t0 = simde_mm256_unpacklo_ps(r0, r1);
-                    __t1 = simde_mm256_unpackhi_ps(r0, r1);
-                    __t2 = simde_mm256_unpacklo_ps(r2, r3);
-                    __t3 = simde_mm256_unpackhi_ps(r2, r3);
-                    __t4 = simde_mm256_unpacklo_ps(r4, r5);
-                    __t5 = simde_mm256_unpackhi_ps(r4, r5);
-                    __t6 = simde_mm256_unpacklo_ps(r6, r7);
-                    __t7 = simde_mm256_unpackhi_ps(r6, r7);
-                    __tt0 = simde_mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
-                    __tt1 = simde_mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
-                    __tt2 = simde_mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
-                    __tt3 = simde_mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
-                    __tt4 = simde_mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
-                    __tt5 = simde_mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
-                    __tt6 = simde_mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
-                    __tt7 = simde_mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
-                    r0 = simde_mm256_permute2f128_ps(__tt0, __tt4, 0x20);
-                    r1 = simde_mm256_permute2f128_ps(__tt1, __tt5, 0x20);
-                    r2 = simde_mm256_permute2f128_ps(__tt2, __tt6, 0x20);
-                    r3 = simde_mm256_permute2f128_ps(__tt3, __tt7, 0x20);
-                    r4 = simde_mm256_permute2f128_ps(__tt0, __tt4, 0x31);
-                    r5 = simde_mm256_permute2f128_ps(__tt1, __tt5, 0x31);
-                    r6 = simde_mm256_permute2f128_ps(__tt2, __tt6, 0x31);
-                    r7 = simde_mm256_permute2f128_ps(__tt3, __tt7, 0x31);
-                }
-#ifdef HAS_XSIMD
-                inline void idct8()
-                {
-                    /* Even part */
-
-                    simd_float8 tmp10 = v0 + v4; /* phase 3 */
-                    simd_float8 tmp11 = v0 - v4;
-
-                    simd_float8 tmp13 = v2 + v6;                                /* phases 5-3 */
-                    simd_float8 tmp12 = (v2 - v6) * 1.414213562f - tmp13; /* 2*c4 */
-
-                    simd_float8 tmp0 = tmp10 + tmp13; /* phase 2 */
-                    simd_float8 tmp3 = tmp10 - tmp13;
-                    simd_float8 tmp1 = tmp11 + tmp12;
-                    simd_float8 tmp2 = tmp11 - tmp12;
-
-                    /* Odd part */
-
-                    simd_float8 z13 = v5 + v3; /* phase 6 */
-                    simd_float8 z10 = v5 - v3;
-                    simd_float8 z11 = v1 + v7;
-                    simd_float8 z12 = v1 - v7;
-
-                    simd_float8 tmp7 = z11 + z13;                         /* phase 5 */
-                    tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
-
-                    simd_float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
-                    tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
-                    tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
-
-                    simd_float8 tmp6 = tmp12 - tmp7; /* phase 2 */
-                    simd_float8 tmp5 = tmp11 - tmp6;
-                    simd_float8 tmp4 = tmp10 - tmp5;
-                    v0 = tmp0 + tmp7;
-                    v1 = tmp1 + tmp6;
-                    v2 = tmp2 + tmp5;
-                    v3 = tmp3 + tmp4;
-                    v4 = tmp3 - tmp4;
-                    v5 = tmp2 - tmp5;
-                    v6 = tmp1 - tmp6;
-                    v7 = tmp0 - tmp7;
-                }
-#else
-                inline void idct8() {
-                    /* Even part */
-
-                    simde__m256 tmp10 = simde_mm256_add_ps(r0, r4); /* phase 3 */
-                    simde__m256 tmp11 = simde_mm256_sub_ps(r0, r4);
-
-                    simde__m256 tmp13 = simde_mm256_add_ps(r2, r6); /* phases 5-3 */
-                    simde__m256 tmp12 = simde_mm256_sub_ps(simde_mm256_mul_ps(simde_mm256_sub_ps(r2, r6), simde_mm256_set1_ps(1.414213562f)), tmp13); /* 2*c4 */
-
-                    simde__m256 tmp0 = simde_mm256_add_ps(tmp10, tmp13); /* phase 2 */
-                    simde__m256 tmp3 = simde_mm256_sub_ps(tmp10, tmp13);
-                    simde__m256 tmp1 = simde_mm256_add_ps(tmp11, tmp12);
-                    simde__m256 tmp2 = simde_mm256_sub_ps(tmp11, tmp12);
-
-                    /* Odd part */
-
-                    simde__m256 z13 = simde_mm256_add_ps(r5, r3); /* phase 6 */
-                    simde__m256 z10 = simde_mm256_sub_ps(r5, r3);
-                    simde__m256 z11 = simde_mm256_add_ps(r1, r7);
-                    simde__m256 z12 = simde_mm256_sub_ps(r1, r7);
-
-                    simde__m256 tmp7 = simde_mm256_add_ps(z11, z13); /* phase 5 */
-                    tmp11 = simde_mm256_mul_ps(simde_mm256_sub_ps(z11, z13), simde_mm256_set1_ps(1.414213562f)); /* 2*c4 */
-
-                    simde__m256 z5 = simde_mm256_mul_ps(simde_mm256_add_ps(z10, z12), simde_mm256_set1_ps(1.847759065f)); /* 2*c2 */
-                    tmp10 = simde_mm256_sub_ps(z5, simde_mm256_mul_ps(z12, simde_mm256_set1_ps(1.082392200f))); /* 2*(c2-c6) */
-                    tmp12 = simde_mm256_sub_ps(z5, simde_mm256_mul_ps(z10, simde_mm256_set1_ps(2.613125930f))); /* 2*(c2+c6) */
-
-                    simde__m256 tmp6 = simde_mm256_sub_ps(tmp12, tmp7); /* phase 2 */
-                    simde__m256 tmp5 = simde_mm256_sub_ps(tmp11, tmp6);
-                    simde__m256 tmp4 = simde_mm256_sub_ps(tmp10, tmp5);
-
-                    r0 = simde_mm256_add_ps(tmp0, tmp7);
-                    r1 = simde_mm256_add_ps(tmp1, tmp6);
-                    r2 = simde_mm256_add_ps(tmp2, tmp5);
-                    r3 = simde_mm256_add_ps(tmp3, tmp4);
-                    r4 = simde_mm256_sub_ps(tmp3, tmp4);
-                    r5 = simde_mm256_sub_ps(tmp2, tmp5);
-                    r6 = simde_mm256_sub_ps(tmp1, tmp6);
-                    r7 = simde_mm256_sub_ps(tmp0, tmp7);
-                }
-#endif
-
-                void inv2d() {
-                    //transpose(); //this transpose moved out to a ZZ order
-                    idct8();
-                    transpose();
-                    idct8();
-                }
-            } block{};
+            alignas(16) float block[64]{};
+            alignas(16) float block_col[64];
 
             uint8_t code{};
             // DC coef
             dcpred += dc->njGetVLC(bs, code);
-
-
-            alignas(32) static const auto ZZ = [] {
-                        std::array<uint8_t, 64> zz_t{ 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
-                                                    11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
-                                                    42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
-                                                    38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
-                        for (int i = 0; i < 64; i++)
-                        {
-                            int col = zz_t[i] % 8;
-                            int row = zz_t[i] / 8;
-                            std::swap(col,row); // transpose
-                            zz_t[i] = row * 8 + col; // transpose back to row-major order
-                        }
-                        return zz_t;
-
-                        }();
+            alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
+                                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
+                                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+                                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
 
             block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
 
@@ -517,8 +411,11 @@ namespace nanojpeg
 
             if (coef)
             {
+                for (int i = 0, j = 0; i < 64; i += 8, ++j)
+                    idct8(block + i, block_col + j);
 
-                block.inv2d();
+                for (int i = 0, j = 0; i < 64; i += 8, ++j)
+                    idct8(block_col + i, block + j);
 
                 for (int i = 0, j=0; i < 64; i += 8, j += stride)
                 {
