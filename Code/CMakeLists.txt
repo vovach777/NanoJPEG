@@ -11,7 +11,7 @@ add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 add_executable(nanojpeg app.cpp nanojpeg.hpp)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(nanojpeg PRIVATE -Ofast -flto -mavx -march=native -fopenmp-simd)
+    target_compile_options(nanojpeg PRIVATE -O3 -flto -mavx -march=native -fopenmp-simd)
 endif()
 
 find_package(Stb REQUIRED)

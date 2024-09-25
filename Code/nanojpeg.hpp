@@ -341,10 +341,6 @@ namespace nanojpeg
                     simd_float8 v0,v1,v2,v3,v4,v5,v6,v7;
                 };
 #endif
-                inline float operator[ ](int i) const noexcept { return blk[i]; }
-                inline float& operator[ ](int i) noexcept { return blk[i]; }
-
-
                 struct {
                     simde__m256 r0,r1,r2,r3,r4,r5,r6,r7;
                 };
@@ -352,6 +348,9 @@ namespace nanojpeg
                 U(float * b) {
                 std::copy(b, b+64, blk);
                 }
+
+                inline float operator[](int i) const noexcept { return blk[i]; }
+                inline float& operator[](int i) noexcept { return blk[i]; }
 
                 // https://stackoverflow.com/a/25627536/1062758
                 inline void transpose() {
@@ -717,7 +716,8 @@ namespace nanojpeg
                     njThrow(NJ_UNSUPPORTED); // non-power of two
                 if ((pos[2]) & 0xFC)
                     njThrow(NJ_SYNTAX_ERROR);
-                c.qtab = qtab[ pos[2] ].data();
+                if ( qtab.size() == 4)
+                    c.qtab = qtab[ pos[2] ].data();
                 Skip(3);
                 //qtused |= 1 << c.qtsel;
                 if (c.ssx > ssxmax)
