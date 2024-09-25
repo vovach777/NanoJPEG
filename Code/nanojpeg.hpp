@@ -285,7 +285,7 @@ namespace nanojpeg
             return symbolbits;
         }
 
-        inline int njGetVLC(BitstreamContext &bs, uint8_t &code) const
+        int njGetVLC(BitstreamContext &bs, uint8_t &code) const
         {
             uint32_t peek = bs.peek();
             const auto symbolbit = find(peek >> 16);
@@ -330,7 +330,7 @@ namespace nanojpeg
         int dcpred{};
         int size{};
         std::vector<uint8_t> pixels{};
-        void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
+        inline void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
         {
 
                 union alignas(32) U{
