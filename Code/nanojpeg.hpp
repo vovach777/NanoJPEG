@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.3) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 3.4) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
