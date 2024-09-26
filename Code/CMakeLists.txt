@@ -1,9 +1,5 @@
-cmake_minimum_required(VERSION 3.16)
-cmake_policy(SET CMP0091 NEW)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
+cmake_minimum_required(VERSION 3.15)
 project(nanojpeg)
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
