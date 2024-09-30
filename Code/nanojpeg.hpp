@@ -237,9 +237,9 @@ namespace nanojpeg
                         item.mask = (0xFFFF << (16 - bitlen)) & 0xffff;
                         const int ones = leading_ones(item.code);
 
-                        if (ones > ones_pos)
+                        if (ones_pos < ones)
                         {
-                            while (ones > ones_pos)
+                            while (ones_pos < ones)
                             {
                                 bitseek[ones_pos++] = std::min(0xff, ones_seek); // fill up the bitseek table
                             }
@@ -311,8 +311,8 @@ namespace nanojpeg
         }
     };
 
-    using HuffCodeDC = HuffCode<4>;
-    using HuffCodeAC = HuffCode<8>;
+    using HuffCodeDC = HuffCode<6>;
+    using HuffCodeAC = HuffCode<10>;
 
     struct nj_component_t
     {
