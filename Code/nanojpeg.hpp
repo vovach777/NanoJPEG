@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.4) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 3.5) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -284,9 +284,9 @@ namespace nanojpeg
                         item.mask = (0xFFFF << (16 - bitlen)) & 0xffff;
                         const int ones = leading_ones(item.code);
 
-                        if (ones > ones_pos)
+                        if (ones_pos < ones)
                         {
-                            while (ones > ones_pos)
+                            while (ones_pos < ones)
                             {
                                 bitseek[ones_pos++] = std::min(0xff, ones_seek); // fill up the bitseek table
                             }
@@ -358,8 +358,8 @@ namespace nanojpeg
         }
     };
 
-    using HuffCodeDC = HuffCode<4>;
-    using HuffCodeAC = HuffCode<8>;
+    using HuffCodeDC = HuffCode<6>;
+    using HuffCodeAC = HuffCode<10>;
 
     struct nj_component_t
     {
