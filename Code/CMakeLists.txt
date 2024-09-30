@@ -8,7 +8,7 @@ add_executable(nanojpeg app.cpp nanojpeg.hpp)
 set_target_properties(nanojpeg PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(nanojpeg PRIVATE -O3 -flto  -march=native -mavx -ffp-contract=fast -fopenmp-simd)
+    target_compile_options(nanojpeg PRIVATE -O3 -flto  -march=native -mavx  -fopenmp-simd)
 endif()
 
 find_package(Stb REQUIRED)
