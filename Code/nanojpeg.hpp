@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
+//#define NJ_DISABLE_LOCKUP
 #ifdef HAS_XSIMD
 #include <xsimd/xsimd.hpp>
 namespace xs = xsimd;
@@ -52,48 +53,9 @@ namespace nanojpeg
         throw std::domain_error(std::forward<STR>(e));
     }
 
-#ifndef HAS_BUILTIN_CLZ
-#if defined(__has_builtin)
-#if __has_builtin(__builtin_clz)
-#define HAS_BUILTIN_CLZ
-#endif
-#else
-#if defined(_MSC_VER)
-#include <intrin.h>
-#pragma intrinsic(_BitScanReverse)
-    inline int __builtin_clz(unsigned long mask)
-    {
-        unsigned long where;
-        // Search from LSB to MSB for first set bit.
-        // Returns zero if no set bit is found.
-        if (_BitScanReverse(&where, mask))
-            return static_cast<int>(31 - where);
-        return 32; // Undefined Behavior.
-    }
-#define HAS_BUILTIN_CLZ
-#else
-    inline int __builtin_clz(unsigned long mask)
-    {
-        if (mask == 0)
-            return 32;
-        int where = 31;
-        while ((mask & (1UL << where)) == 0)
-            where--;
-        return 32 - where;
-    }
-#endif
-#endif
-#endif
-
-    inline int leading_ones(int peek)
-    {
-        return __builtin_clz(~(peek << 16));
-    }
-
     inline uint8_t njClip(int x)
     {
-        // return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
-        return std::clamp(x, 0, 0xFF);
+        return std::clamp(x, 0, 0xFF); // (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
     }
 
     inline int njDecode16(const uint8_t *pos)
@@ -160,28 +122,28 @@ namespace nanojpeg
     template <int LOCKUP_SIZE>
     struct HuffCode
     {
-        struct DHTItem
-        {
-            uint32_t mask;
-            uint16_t code;
-            uint16_t symbolbit;
-        };
-        alignas(32) std::array<DHTItem, 256> abc_dht{};
-        alignas(32) std::array<uint8_t, 17> bitseek{};
-        alignas(32) std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
+        #ifndef NJ_DISABLE_LOCKUP
+        std::vector<uint16_t> fast_lockup = std::vector<uint16_t>(  1 << LOCKUP_SIZE );
+        struct {
+            int huffman_code{};
+            const uint8_t* counts{};
+            const uint8_t* symbols{};
+        } directDHT{}; //Slow huffman search
+        #endif
 
         const uint8_t *dht{nullptr};
-        int max_peek{0};
+        int max_peek{0}; //lockup last
 
         void reset() {
-            std::fill(abc_dht.begin(), abc_dht.end(), DHTItem{});
-            std::fill(bitseek.begin(), bitseek.end(), 0);
+            #ifndef NJ_DISABLE_LOCKUP
             std::fill(fast_lockup.begin(), fast_lockup.end(), 0);
+            directDHT={};
+            #endif
             dht = nullptr;
             max_peek = 0;
         }
-
-        void build_lockup()
+        /* returns DHT item size */
+        int build_lockup()
         {
             max_peek = 0;
 
@@ -189,92 +151,89 @@ namespace nanojpeg
             assert(dht != nullptr);
             const uint8_t *pCount = dht;
             const uint8_t *pSymbol = dht + 16;
+            int huffman_code = 0;
             int remain = (1 << LOCKUP_SIZE), spread = (1 << LOCKUP_SIZE);
-
             int symbols_count = 0;
-            for (int codelen = 1; codelen <= LOCKUP_SIZE; ++codelen)
+            for (int codelen = 1; codelen <= 16; ++codelen)
             {
                 spread >>= 1;
+                #ifndef NJ_DISABLE_LOCKUP
+                if (codelen == LOCKUP_SIZE+1)
+                    directDHT = {huffman_code,pCount,pSymbol};
+                #endif
                 int currcnt = *pCount++;
-                if (!currcnt)
-                    continue;
-                symbols_count += currcnt;
-                remain -= currcnt << (LOCKUP_SIZE - codelen);
-
-                for (int i = 0; i < currcnt; ++i)
-                {
-                    auto code = (*pSymbol++) << 8 | codelen;
-                    for (int j = spread; j; --j)
+                if (currcnt) {
+                    symbols_count += currcnt;
+                    huffman_code+=currcnt;
+                    #ifndef NJ_DISABLE_LOCKUP
+                    if ( codelen <= LOCKUP_SIZE )
                     {
-                        fast_lockup.at(max_peek++) = code;
-                    }
-                }
-            }
-        }
-
-        int build_index()
-        {
-            const uint8_t *symbols = dht + 16;
-            const uint8_t *counts = dht;
-            int huffman_code = 0;
-
-            int dht_size = 16;
-            uint32_t seek = 0;
-            int ones_pos = 0;
-            int ones_seek = 0;
-            for (int bitlen = 1; bitlen <= 16; ++bitlen)
-            {
-                int count = *counts++;
-                dht_size += count;
-                if (count > 0)
-                {
-                    for (int i = 0; i < count; ++i)
-                    {
-                        const int code = huffman_code++;
-                        auto &item = abc_dht.at(seek);
-                        item.symbolbit = ((*symbols++) << 8) | bitlen; // symbol and bitlen
-                        item.code = code << (16 - bitlen);
-                        item.mask = (0xFFFF << (16 - bitlen)) & 0xffff;
-                        const int ones = leading_ones(item.code);
-
-                        if (ones > ones_pos)
+                        remain -= currcnt << (LOCKUP_SIZE - codelen);
+                        for (int i = 0; i < currcnt; ++i)
                         {
-                            while (ones > ones_pos)
+                            auto code = (*pSymbol++) << 8 | codelen;
+                            for (int j = spread; j; --j)
                             {
-                                bitseek[ones_pos++] = std::min(0xff, ones_seek); // fill up the bitseek table
+                                fast_lockup.at(max_peek++) = code;
                             }
-                            ones_seek = seek; // set the bitseek table
                         }
-                        seek += 1;
                     }
+                    #endif
                 }
                 huffman_code <<= 1;
             }
 
-            while (ones_pos < 17)
-            {
-                bitseek[ones_pos++] = std::min(0xff, ones_seek); // fill up the bitseek table
-            }
-            return dht_size;
+            return symbols_count + 16;
         }
+
 
         uint16_t find_slow(const int peek) const noexcept
         {
-
-            for (auto it = abc_dht.cbegin() + bitseek[leading_ones(peek)]; it != abc_dht.cend(); ++it)
+            #ifdef NJ_DISABLE_LOCKUP
+            const uint8_t* counts = dht;
+            const uint8_t* symbols = dht+16;
+            int huffman_code = 0;
+            int bitlen = 1;
+            #else
+            const uint8_t* counts = directDHT.counts;
+            const uint8_t* symbols = directDHT.symbols;
+            int huffman_code = directDHT.huffman_code;
+            int bitlen = LOCKUP_SIZE+1;
+            #endif
+            for (; bitlen <= 16; ++bitlen)
             {
-                if (!((it->code ^ peek) & it->mask))
-                {
-                    return it->symbolbit; // symbol and bitlen
+                int count = *counts++;
+                if (count > 0) {
+                    const int peekcode = peek >> (16 - bitlen);
+                    // if (peekcode < huffman_code) {
+                    //     std::cout << peekcode << " < " << huffman_code << std::endl;
+                    // }
+                    if (peekcode >= huffman_code+count) {
+                        symbols+=count;
+                        huffman_code+=count;
+                    }
+                    else
+                    {
+                        for (int i = 0; i < count; ++i) {
+                            int symbol = *symbols++;
+                            int code   = huffman_code++;
+                            if ( peekcode == code) {
+                                return (symbol << 8) | bitlen; // symbol and bitlen
+                            }
+                        }
+                    }
                 }
+                huffman_code <<= 1;
             }
-            return uint16_t{0}; // error
+            return 0;//error value
         }
 
         inline uint16_t find(const int peek16) const noexcept
         {
+            #ifdef NJ_DISABLE_LOCKUP
+                return find_slow(peek16);
+            #else
             static_assert(LOCKUP_SIZE >= 4 && LOCKUP_SIZE <= 16, "LOCKUP_SIZE must be between 4 and 16");
-            static_assert(sizeof(DHTItem) == 8);
 
             const int peek = peek16 >> (16 - LOCKUP_SIZE);
             if (peek >= max_peek)
@@ -283,6 +242,7 @@ namespace nanojpeg
             }
             const auto symbolbits = fast_lockup[peek];
             return symbolbits;
+            #endif
         }
 
         int njGetVLC(BitstreamContext &bs, uint8_t &code) const
@@ -311,8 +271,8 @@ namespace nanojpeg
         }
     };
 
-    using HuffCodeDC = HuffCode<4>;
-    using HuffCodeAC = HuffCode<8>;
+    using HuffCodeDC = HuffCode<6>;
+    using HuffCodeAC = HuffCode<10>;
 
     struct nj_component_t
     {
@@ -786,8 +746,7 @@ namespace nanojpeg
                     if (tab.dht)
                         tab.reset();
                     tab.dht = dht;
-                    tab.build_lockup();
-                    Skip(tab.build_index());
+                    Skip(tab.build_lockup());
                 }
                 else
                 {
@@ -795,8 +754,7 @@ namespace nanojpeg
                     if (tab.dht)
                         tab.reset();
                     tab.dht = dht;
-                    tab.build_lockup();
-                    Skip(tab.build_index());
+                    Skip(tab.build_lockup());
                 }
             }
             if (length)

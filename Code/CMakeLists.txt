@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 
 add_executable(nanojpeg app.cpp nanojpeg.hpp)
+set_target_properties(nanojpeg PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(nanojpeg PRIVATE -O3 -flto -mavx -march=native -fopenmp-simd)
