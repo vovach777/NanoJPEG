@@ -53,8 +53,7 @@ namespace nanojpeg
 #define HAS_BUILTIN_CLZ
 #endif
 #else
-#if defined(_MSC_VER)
-#include <intrin.h>
+#if defined(_MSC_VER)#include <intrin.h>
 #pragma intrinsic(_BitScanReverse)
     inline int __builtin_clz(unsigned long mask)
     {
@@ -67,7 +66,7 @@ namespace nanojpeg
     }
 #define HAS_BUILTIN_CLZ
 #else
-    inline int __builtin_clz(unsigned long mask)
+    constexpr inline int __builtin_clz(unsigned long mask)
     {
         if (mask == 0)
             return 32;
@@ -80,12 +79,12 @@ namespace nanojpeg
 #endif
 #endif
 
-    inline int leading_ones(int peek)
+    constexpr inline int leading_ones(int peek)
     {
         return __builtin_clz(~(peek << 16));
     }
 
-    inline uint8_t njClip(int x)
+    constexpr inline uint8_t njClip(int x)
     {
         // return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
         return std::clamp(x, 0, 0xFF);
@@ -96,57 +95,260 @@ namespace nanojpeg
         return (pos[0] << 8) | pos[1];
     }
 
-    inline void idct8(const float *s, float *d)
-    {
-        /* Even part */
 
-        float tmp0 = s[0];
-        float tmp1 = s[2];
-        float tmp2 = s[4];
-        float tmp3 = s[6];
+template <typename Type, int SimdSize>
+union alignas(32) SimdX{
+    Type data[SimdSize]{};
+    static constexpr auto simd_size = SimdSize;
+    using simd_type = Type;
 
-        float tmp10 = tmp0 + tmp2; /* phase 3 */
-        float tmp11 = tmp0 - tmp2;
-
-        float tmp13 = tmp1 + tmp3;                                /* phases 5-3 */
-        float tmp12 = (tmp1 - tmp3) * float(1.414213562) - tmp13; /* 2*c4 */
-
-        tmp0 = tmp10 + tmp13; /* phase 2 */
-        tmp3 = tmp10 - tmp13;
-        tmp1 = tmp11 + tmp12;
-        tmp2 = tmp11 - tmp12;
-
-        /* Odd part */
-
-        float tmp4 = s[1];
-        float tmp5 = s[3];
-        float tmp6 = s[5];
-        float tmp7 = s[7];
-
-        float z13 = tmp6 + tmp5; /* phase 6 */
-        float z10 = tmp6 - tmp5;
-        float z11 = tmp4 + tmp7;
-        float z12 = tmp4 - tmp7;
-
-        tmp7 = z11 + z13;                         /* phase 5 */
-        tmp11 = (z11 - z13) * float(1.414213562); /* 2*c4 */
-
-        float z5 = (z10 + z12) * float(1.847759065); /* 2*c2 */
-        tmp10 = z5 - z12 * float(1.082392200);       /* 2*(c2-c6) */
-        tmp12 = z5 - z10 * float(2.613125930);       /* 2*(c2+c6) */
-
-        tmp6 = tmp12 - tmp7; /* phase 2 */
-        tmp5 = tmp11 - tmp6;
-        tmp4 = tmp10 - tmp5;
-        d[0 * 8] = (tmp0 + tmp7);
-        d[1 * 8] = (tmp1 + tmp6);
-        d[2 * 8] = (tmp2 + tmp5);
-        d[3 * 8] = (tmp3 + tmp4);
-        d[4 * 8] = (tmp3 - tmp4);
-        d[5 * 8] = (tmp2 - tmp5);
-        d[6 * 8] = (tmp1 - tmp6);
-        d[7 * 8] = (tmp0 - tmp7);
+    constexpr inline auto operator-() const {
+        SimdX res;
+        for (int i = 0; i < SimdSize; ++i)
+            res[i] = -data[i];
+        return res;
     }
+
+    constexpr inline auto& operator /= (Type v) {
+        for (int i = 0; i < SimdSize; ++i)
+            data[i] /= v;
+        return *this;
+    }
+
+    constexpr inline auto operator / (Type v) const {
+        SimdX res = *this;
+        res /= v;
+        return res;
+    }
+
+    constexpr inline auto& operator *= (Type v) {
+        for (int i = 0; i < SimdSize; ++i)
+            data[i] *= v;
+        return *this;
+    }
+
+    constexpr inline auto operator * (Type v) const {
+        SimdX res = *this;
+        res *= v;
+        return res;
+    }
+
+    constexpr inline auto& operator *= (SimdX v) {
+        for (int i = 0; i < SimdSize; ++i)
+            data[i] *= v[i];
+        return *this;
+    }
+
+    constexpr inline auto operator * (SimdX v) const {
+        SimdX res = *this;
+        res *= v;
+        return res;
+    }
+
+    constexpr inline auto& operator += (SimdX v) {
+        for (int i = 0; i < SimdSize; ++i)
+            data[i] += v[i];
+        return *this;
+    }
+
+    constexpr auto operator[](int i) const {
+        return data[i];
+    }
+
+    constexpr auto& operator[](int i) {
+        return data[i];
+    }
+
+    constexpr inline auto operator + (SimdX v) const {
+        auto res = *this;
+        res += v;
+        return res;
+    }
+
+    constexpr inline auto& operator -= (SimdX v) {
+        for (int i = 0; i < SimdSize; ++i)
+            data[i] -= v[i];
+        return *this;
+    }
+
+    constexpr inline auto operator - (SimdX v) const {
+        auto res = *this;
+        res -= v;
+        return res;
+    }
+
+    constexpr inline auto& operator += (Type v) {
+        for (int i = 0; i < SimdSize; ++i)
+            data[i] += v;
+        return *this;
+    }
+
+    constexpr inline auto operator + (Type v) const {
+        auto res = *this;
+        res += v;
+        return res;
+    }
+
+    constexpr inline auto& operator -= (Type v) {
+        return operator+=(-v);
+    }
+
+    constexpr inline auto operator - (Type v) const {
+        return operator+(-v);
+    }
+
+    constexpr friend inline SimdX operator * (Type v, const SimdX& rhs) {
+            return rhs * v;
+    }
+
+
+    constexpr friend inline SimdX operator + (Type v, const SimdX& rhs) {
+            return rhs + v;
+    }
+
+    constexpr inline auto& operator << (int v) {
+        if (v > 0) {
+            *this *= Type(1 << v);
+        }
+        return *this;
+    }
+
+    constexpr inline auto& operator >> (int v) {
+        if (v > 0) {
+            *this /= Type(1 << v);
+        }
+        return *this;
+    }
+
+    constexpr inline auto operator << (Type v) const {
+        SimdX res = *this;
+        res <<= v;
+        return res;
+    }
+    constexpr inline auto operator >> (Type v) const {
+        SimdX res = *this;
+        res >>= v;
+        return res;
+    }
+    constexpr inline int size() {
+        return SimdSize;
+    }
+    inline void load(const Type * src, int skip)
+    {
+        #pragma omp simd
+        for (int i = 0; i < SimdSize; ++i)
+        {
+            data[i] = src[i*skip];
+        }
+    }
+    inline void store(Type * store)
+    {
+        #pragma omp simd
+        for (int i = 0; i < SimdSize; ++i)
+        {
+            store[i] = data[i];
+        }
+
+    }
+};
+
+using float8 = SimdX<float,8>;
+
+inline void idct8(float8 * v, unsigned char* out, int stride)
+{
+    /* Even part */
+
+    float8 tmp10 = v[0] + v[4]; /* phase 3 */
+    float8 tmp11 = v[0] - v[4];
+
+    float8 tmp13 = v[2] + v[6];                                /* phases 5-3 */
+    float8 tmp12 = (v[2] - v[6]) * 1.414213562f - tmp13; /* 2*c4 */
+
+    float8 tmp0 = tmp10 + tmp13; /* phase 2 */
+    float8 tmp3 = tmp10 - tmp13;
+    float8 tmp1 = tmp11 + tmp12;
+    float8 tmp2 = tmp11 - tmp12;
+
+    /* Odd part */
+
+    float8 z13 = v[5] + v[3]; /* phase 6 */
+    float8 z10 = v[5] - v[3];
+    float8 z11 = v[1] + v[7];
+    float8 z12 = v[1] - v[7];
+
+    float8 tmp7 = z11 + z13;                         /* phase 5 */
+    tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
+
+    float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
+    tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
+    tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
+
+    float8 tmp6 = tmp12 - tmp7; /* phase 2 */
+    float8 tmp5 = tmp11 - tmp6;
+    float8 tmp4 = tmp10 - tmp5;
+    if ( out ) {
+
+        auto v = {
+                    tmp0 + tmp7,
+                    tmp1 + tmp6,
+                    tmp2 + tmp5,
+                    tmp3 + tmp4,
+                    tmp3 - tmp4,
+                    tmp2 - tmp5,
+                    tmp1 - tmp6,
+                    tmp0 - tmp7,
+                    };
+
+
+        #pragma omp simd
+        for (int i=0; i<8; ++i)
+        {
+            for (int j=0; j < 8; ++j)
+            {
+                out[j] = njClip( std::begin(v)[i][j] + 128.5f);
+            }
+            out += stride;
+        }
+    } else {
+        v[0] = tmp0 + tmp7;
+        v[1] = tmp1 + tmp6;
+        v[2] = tmp2 + tmp5;
+        v[3] = tmp3 + tmp4;
+        v[4] = tmp3 - tmp4;
+        v[5] = tmp2 - tmp5;
+        v[6] = tmp1 - tmp6;
+        v[7] = tmp0 - tmp7;
+    }
+}
+
+
+inline void transpose(float8 *a) {
+
+    float8 tmp[8];
+
+    #pragma omp simd
+    for (int i =0; i < float8::simd_size; ++i)
+    {
+        for (int j = 0; j < float8::simd_size; ++j)
+        {
+            tmp[i][j] = a[j][i];
+        }
+    }
+
+    #pragma omp simd
+    for (int i =0; i < float8::simd_size; ++i)
+    {
+        a[i] = tmp[i];
+    }
+
+}
+
+static void idct8x8(float8 * block, unsigned char*out, int stride)
+{
+    idct8(block,nullptr,0);
+    transpose(block);
+    idct8(block,out, stride);
+}
 
     struct BitstreamContext
     {
@@ -213,9 +415,9 @@ namespace nanojpeg
             uint16_t code;
             uint16_t symbolbit;
         };
-        alignas(16) std::array<DHTItem, 256> abc_dht{};
-        alignas(16) std::array<uint8_t, 17> bitseek{};
-        alignas(16) std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
+        std::array<DHTItem, 256> abc_dht{};
+        std::array<uint8_t, 17> bitseek{};
+        std::array<uint16_t, 1 << LOCKUP_SIZE> fast_lockup{};
 
         const uint8_t *dht{nullptr};
         int max_peek{0};
@@ -332,21 +534,22 @@ namespace nanojpeg
             return symbolbits;
         }
 
-        int njGetVLC(BitstreamContext &bs, uint8_t &code) const
+        auto njGetVLC(BitstreamContext &bs) const
         {
+
             uint32_t peek = bs.peek();
             const auto symbolbit = find(peek >> 16);
             uint32_t codelen = symbolbit & 0xff;
             if (codelen == 0 || codelen > 16)
                 njThrow(NJ_INTERNAL_ERR);
 
-            code = uint8_t(symbolbit >> 8);
+            uint8_t code = uint8_t(symbolbit >> 8);
             uint32_t bits = code & 0xfU; // number of extra bits
 
             if (!bits)
             {
                 bs.skip(codelen); // skip the bits we just read
-                return 0;
+                return std::make_pair(0, code);
             }
             peek <<= codelen; // remove the bits we just read from the peek buffer
             int bitvalue = (peek >> (32U - bits));
@@ -354,7 +557,7 @@ namespace nanojpeg
 
             if (bitvalue < (1 << (bits - 1)))
                 bitvalue += ((-1) << bits) + 1;
-            return bitvalue;
+            return std::make_pair( bitvalue, code);
         }
     };
 
@@ -379,16 +582,36 @@ namespace nanojpeg
         std::vector<uint8_t> pixels{};
         inline void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
         {
-            alignas(16) float block[64]{};
-            alignas(16) float block_col[64];
+            alignas(32) union {
+                float data[64]{};
+                float8 rows[8];
+                constexpr float operator [](int i) const {
+                    return data[i];
+                }
+                constexpr float& operator [](int i) {
+                    return data[i];
+                }
+                constexpr operator float*(){
+                    return &data[0];
+                }
+                constexpr operator float8*(){
+                    return &rows[0];
+                }
 
-            uint8_t code{};
+            } block;
+
             // DC coef
-            dcpred += dc->njGetVLC(bs, code);
-            alignas(16) static const uint8_t ZZ[64] = {0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18,
-                                                       11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35,
-                                                       42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
-                                                       38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+            dcpred += std::get<0>( dc->njGetVLC(bs) );
+            //transponsed!!!
+            static const uint8_t ZZ[64] =
+            {0,8,1,2,9,16,24,17,10,
+            3,4,11,18,25,32,40,33,
+            26,19,12,5,6,13,20,27,
+            34,41,48,56,49,42,35,28,
+            21,14,7,15,22,29,36,43,
+            50,57,58,51,44,37,30,23,
+            31,38,45,52,59,60,53,46,
+            39,47,54,61,62,55,63};
 
             block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
 
@@ -396,38 +619,22 @@ namespace nanojpeg
 
             do
             {
-                int value = ac->njGetVLC(bs, code);
+                auto [value, code] = ac->njGetVLC(bs);
                 if (!code)
                     break; // EOB
-                if (!(code & 0x0F) && (code != 0xF0))
-                    njThrow(NJ_SYNTAX_ERROR);
+                // if (!(code & 0x0F) && (code != 0xF0))
+                //     njThrow(NJ_SYNTAX_ERROR);
                 coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
-                if (coef > 63)
-                {
-                    njThrow(NJ_SYNTAX_ERROR);
-                }
+                // if (coef > 63)
+                // {
+                //     njThrow(NJ_SYNTAX_ERROR);
+                // }
                 block[ZZ[coef]] = value * qtab[coef]; // DCT coefficients scaling and quantization
             } while (coef < 63);
 
             if (coef)
             {
-                for (int i = 0, j = 0; i < 64; i += 8, ++j)
-                    idct8(block + i, block_col + j);
-
-                for (int i = 0, j = 0; i < 64; i += 8, ++j)
-                    idct8(block_col + i, block + j);
-
-                for (int i = 0, j=0; i < 64; i += 8, j += stride)
-                {
-                    out[j]   = njClip(block[i]   + 128.5f);
-                    out[j+1] = njClip(block[i+1] + 128.5f);
-                    out[j+2] = njClip(block[i+2] + 128.5f);
-                    out[j+3] = njClip(block[i+3] + 128.5f);
-                    out[j+4] = njClip(block[i+4] + 128.5f);
-                    out[j+5] = njClip(block[i+5] + 128.5f);
-                    out[j+6] = njClip(block[i+6] + 128.5f);
-                    out[j+7] = njClip(block[i+7] + 128.5f);
-                }
+                idct8x8(block, out , stride);
             }
             else
             { // only DC component
@@ -814,6 +1021,15 @@ namespace nanojpeg
         }
     };
 
+    struct nj_plane {
+        int width{};
+        int height{};
+        int stride{};
+        int chroma_w_log2{};
+        int chroma_h_log2{};
+        std::vector<uint8_t> pixels;
+    };
+
     struct nj_result
     {
         int width{};
@@ -821,37 +1037,55 @@ namespace nanojpeg
         size_t size{};
         bool is_ycck{};
         int yuv_format{}; // native form; 444 = yuv444, 422 = yuv422, 420 = yuv420, 411 = yuv411, 400 = yuv400
-        std::vector<nj_component_t> components{};
+        std::vector<nj_plane> planes{};
     };
 
-    static nj_result decode(const uint8_t *jpeg, size_t size)
+    nj_result decode(const uint8_t *jpeg, size_t size)
     {
         nj_context_t nj{}; // clear context
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
-        return {nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::move(nj.comp)}; // return components
+        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::vector<nj_plane>(nj.comp.size()) };
+        for (int i = 0; i < nj.ncomp; ++i)
+        {
+            auto& src   = nj.comp[i];
+            auto& dst  = res.planes[i];
+            dst.width = src.width;
+            dst.height = src.height;
+            dst.stride = src.stride;
+            dst.chroma_w_log2 = src.chroma_w_log2;
+            dst.chroma_h_log2 = src.chroma_h_log2;
+            std::swap( dst.pixels, src.pixels);
+        }
+        return res;
     }
 
-    static void decode( const uint8_t* &jpeg, size_t &size, nj_result &reuse)
+    void decode(const uint8_t* jpeg, size_t size,  nj_result & reuse)
     {
-        nj_context_t nj{}; // clear context
-        nj.comp.resize(reuse.components.size()); // reuse components buffer
-        for (int i = 0; i < reuse.components.size(); ++i)
-        {
-            std::swap(reuse.components[i].pixels, nj.comp[i].pixels); // reuse components buffer
-        }
+        nj_context_t   nj{}; // clear context
         nj.pos = jpeg;
         nj.size = size;
+        nj.comp.resize( reuse.planes.size() );
+        for (int i=0; i < reuse.planes.size(); ++i)
+        {
+           nj.comp[i].pixels = std::move(reuse.planes[i].pixels);
+        }
         nj.Decode();
-        reuse.width = nj.width;
-        reuse.height = nj.height;
-        reuse.size = size - nj.size;
-        reuse.is_ycck = nj.is_ycck && nj.ncomp == 4;
-        reuse.yuv_format = nj.get_yuv_format();
-        std::swap(nj.comp, reuse.components);
-        jpeg = nj.pos;
-        size = nj.size;
+        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::vector<nj_plane>(nj.comp.size()) };
+        for (int i = 0; i < nj.ncomp; ++i)
+        {
+            auto& src   = nj.comp[i];
+            auto& dst  = res.planes[i];
+            dst.width = src.width;
+            dst.height = src.height;
+            dst.stride = src.stride;
+            dst.chroma_w_log2 = src.chroma_w_log2;
+            dst.chroma_h_log2 = src.chroma_h_log2;
+            dst.pixels = std::move( src.pixels );
+        }
+
     }
+
 
 } // namespace nj

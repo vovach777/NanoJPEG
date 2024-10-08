@@ -1,3 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
+# set( CMAKE_TOOLCHAIN_FILE  "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "VCPKG integration" )
+# set( VCPKG_TARGET_TRIPLET "x64-windows-static"  CACHE STRING "VCPKG Target Triplet to use" )
+# set( VCPKG_HOST_TRIPLET "x64-windows-static"  CACHE STRING "VCPKG Host Triplet to use" )
+# set( VCPKG_MANIFEST_MODE OFF )
+# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(nanojpeg)
 add_subdirectory(Code)

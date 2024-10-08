@@ -55,8 +55,8 @@ constexpr inline void YCbCr_to_RGB(int y, int cb, int cr, T &r_, T &g_, T &b_)
     b_ = b;
 }
 
-template <bool is_ycck, int planes_nb, typename YUV_, typename RGB_, typename COMP>
-inline void convert(YUV_ &&yuv, RGB_ &&rgb, COMP &&comp, int width, int height)
+template <bool is_ycck, int planes_nb, typename YUV_, typename RGB_>
+inline void convert(YUV_ &&yuv, RGB_ &&rgb, int width, int height)
 {
 
     for (int h = 0; h < height; ++h)
@@ -73,18 +73,18 @@ inline void convert(YUV_ &&yuv, RGB_ &&rgb, COMP &&comp, int width, int height)
             else if constexpr (planes_nb == 3)
             {
                 auto y = yuv(0, x, h);
-                auto u = yuv(1, x >> comp[1].chroma_w_log2, h >> comp[1].chroma_h_log2);
-                auto v = yuv(2, x >> comp[2].chroma_w_log2, h >> comp[2].chroma_h_log2);
+                auto u = yuv(1, x, h);
+                auto v = yuv(2, x, h);
                 int r, g, b;
                 YCbCr_to_RGB(y, u, v, r, g, b);
                 rgb(x, h, r, g, b);
             }
             else
             {
-                const auto c = yuv(0, x >> comp[0].chroma_w_log2, h >> comp[0].chroma_h_log2);
-                const auto m = yuv(1, x >> comp[1].chroma_w_log2, h >> comp[1].chroma_h_log2);
-                const auto y = yuv(2, x >> comp[2].chroma_w_log2, h >> comp[2].chroma_h_log2);
-                const auto k = yuv(3, x >> comp[3].chroma_w_log2, h >> comp[3].chroma_h_log2);
+                const auto c = yuv(0, x, h);
+                const auto m = yuv(1, x, h);
+                const auto y = yuv(2, x, h);
+                const auto k = yuv(3, x, h);
                 if constexpr (is_ycck)
                 {
                     int ir, ig, ib;
@@ -108,39 +108,26 @@ inline void convert(YUV_ &&yuv, RGB_ &&rgb, COMP &&comp, int width, int height)
 template <typename YUV_, typename RGB_>
 inline void convert(nanojpeg::nj_result &image, YUV_ &&yuv, RGB_ &&rgb)
 {
-    switch (image.components.size())
+    switch (image.planes.size())
     {
     case 1:
-        convert<false, 1>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components, image.width, image.height);
+        convert<false, 1>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
         break;
     case 2:
-        convert<false, 2>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components, image.width, image.height);
+        convert<false, 2>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
         break;
     case 3:
-        convert<false, 3>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components, image.width, image.height);
+        convert<false, 3>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
         break;
     case 4:
         if (image.is_ycck)
-            convert<true, 4>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components, image.width, image.height);
+            convert<true, 4>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
         else
-            convert<false, 4>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.components, image.width, image.height);
+            convert<false, 4>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
         break;
     default:
         throw std::runtime_error("invalid number of planes");
     }
-}
-
-template <typename _STR, typename COMPS>
-void save_bmp(_STR &&out_filename, COMPS &&image)
-{
-
-    int comp_nb = std::min<int>(3, image.components.size());
-    std::vector<uint8_t> rgb(image.width * image.height * comp_nb);
-    auto rgb_out = rgb.data();
-    convert(image, [&comp = std::forward<COMPS>(image.components)](int comp_n, int x, int y)
-            { return (int)comp[comp_n].pixels[y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)
-            { ((*rgb_out++ = args), ...); });
-    stbi_write_bmp(out_filename.c_str(), image.width, image.height, comp_nb, rgb.data());
 }
 
 namespace profiling
@@ -231,9 +218,9 @@ static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
     njheader.DecodeSOF<true, false>();
     nanojpeg::nj_result frame{};
     //avoide memory allocation in nanojpeg side
-    frame.components.resize( njheader.ncomp );
+    frame.planes.resize( njheader.ncomp );
     for (int i = 0; i < njheader.ncomp; i++) {
-        frame.components[i].pixels.resize( njheader.comp[i].size);
+        frame.planes[i].pixels.resize( njheader.comp[i].size);
     }
 
     bench.start();
@@ -243,7 +230,7 @@ static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
 }
 
 __attribute__((noinline, optnone))
-static void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *&buf, size_t &size, nanojpeg::nj_result &frame)
+static void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *buf, size_t size, nanojpeg::nj_result &frame)
 {
     bench.start();
     nanojpeg::decode(buf, size, frame);
@@ -305,6 +292,8 @@ int main(int argc, char **argv)
             {
                 motion_time.start();
                 nanojpeg_motion_bench(motion_time, pos, size,frame);
+                pos   += frame.size;
+                size  -= frame.size;
                 motion_time.stop();
                 times+=1;
                 if (times == 1) {
@@ -320,7 +309,7 @@ int main(int argc, char **argv)
 
                 fileyuv_file << "FRAME\n";
 
-                for (const auto& c : frame.components)
+                for (const auto& c : frame.planes)
                 {
                     const uint8_t * p = c.pixels.data();
                     for (int h = 0; h < frame.height >> c.chroma_h_log2; h++, p+=c.stride)
@@ -395,12 +384,14 @@ int main(int argc, char **argv)
         auto out_filename = std::string(argv[1]) + ".bmp";
 
         std::cout << std::endl << "YUV -> RGB..." << std::flush;
-        int comp_nb = std::min<int>(3, image.components.size());
+        int comp_nb = std::min<int>(3, image.planes.size());
         std::vector<uint8_t> rgb(image.width * image.height * comp_nb);
         convert_time.start();
         auto rgb_out = rgb.data();
-        convert(image, [&comp = image.components](int comp_n, int x, int y)
-                { return (int)comp[comp_n].pixels[y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)
+        convert(image, [&comp = image.planes](int comp_n, int x, int y)
+                {   x >>= comp[comp_n].chroma_w_log2;
+                    y >>= comp[comp_n].chroma_h_log2;
+                    return (int)comp[comp_n].pixels[ y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)
                 { ((*rgb_out++ = args), ...); });
         convert_time.stop();
         std::cout << std::endl << "time = " << convert_time.elapsed_str() << std::endl;
