@@ -1,16 +1,18 @@
 {
-    "version": 2,
+    "version": 7,
     "configurePresets": [
         {
             "name": "vcpkg",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_TOOLCHAIN_FILE": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-                "VCPKG_MANIFEST_MODE": "ON"
-            }
+                "VCPKG_MANIFEST_MODE": "ON",
+                "VCPKG_VERBOSE": "ON",
+                "CMAKE_VERBOSE_MAKEFILE": "ON"
+            },
+            "toolchainFile": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+            "trace": {"mode": "expand","format": "human"}
         }
     ]
 }

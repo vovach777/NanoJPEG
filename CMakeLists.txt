@@ -1,8 +1,31 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.30)
+set(CMAKE_VERBOSE_MAKEFILE ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<STREQUAL:${VCPKG_CRT_LINKAGE},dynamic>:DLL>" CACHE STRING "")
+string(APPEND CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -msse4.1 -mavx -march=native")
+#string(APPEND CMAKE_LINKER_FLAGS "-static")
 # set( CMAKE_TOOLCHAIN_FILE  "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "VCPKG integration" )
 # set( VCPKG_TARGET_TRIPLET "x64-windows-static"  CACHE STRING "VCPKG Target Triplet to use" )
 # set( VCPKG_HOST_TRIPLET "x64-windows-static"  CACHE STRING "VCPKG Host Triplet to use" )
 # set( VCPKG_MANIFEST_MODE OFF )
 # set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_STANDARD 17)
+string(TOUPPER ${CMAKE_BUILD_TYPE} CONFIG)
+add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 project(nanojpeg)
-add_subdirectory(Code)
+#set(CMAKE_SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR})
+
+add_executable(nanojpeg Code/app.cpp Code/nanojpeg.hpp)
+#set_target_properties(nanojpeg PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+find_package(Stb REQUIRED)
+target_include_directories(nanojpeg PRIVATE ${Stb_INCLUDE_DIR})
+
+find_package(libjpeg-turbo CONFIG REQUIRED)
+target_link_libraries(nanojpeg PRIVATE libjpeg-turbo::turbojpeg-static)
+
+find_package(mio CONFIG REQUIRED)
+target_link_libraries(nanojpeg PRIVATE mio::mio)
+
+message(STATUS "c++ opt_${CONFIG}:  [${CMAKE_CXX_FLAGS}] [${CMAKE_CXX_FLAGS_${CONFIG}}]")
+message(STATUS "link opt_${CONFIG}:  ${CMAKE_EXE_LINKER_FLAGS_INIT}")

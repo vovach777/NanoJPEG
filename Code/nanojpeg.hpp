@@ -35,17 +35,24 @@
 
 namespace nanojpeg
 {
-#define NJ_NO_JPEG "NJ_NO_JPEG"           // not a JPEG file
-#define NJ_UNSUPPORTED "NJ_UNSUPPORTED"   // unsupported format
-#define NJ_OUT_OF_MEM "NJ_OUT_OF_MEM"     // out of memory
-#define NJ_INTERNAL_ERR "NJ_INTERNAL_ERR" // internal error
-#define NJ_SYNTAX_ERROR "NJ_SYNTAX_ERROR" // syntax error
+typedef enum _nj_result {
+    NJ_OK = 0,        // no error, decoding successful
+    NJ_NO_JPEG,       // not a JPEG file
+    NJ_UNSUPPORTED,   // unsupported format
+    NJ_OUT_OF_MEM,    // out of memory
+    NJ_INTERNAL_ERR,  // internal error
+    NJ_SYNTAX_ERROR,  // syntax error
+    __NJ_FINISHED,    // used internally, will never be reported
+} nj_result_t;
 
-    template <typename STR>
-    [[noreturn]] inline void njThrow(STR &&e)
-    {
-        throw std::domain_error(std::forward<STR>(e));
-    }
+class nj_exception : public std::domain_error {
+    public:
+        nj_result_t value;
+        nj_exception(nj_result_t value) : std::domain_error("jpeg decoding error!"),value(value) {}
+};
+
+inline thread_local nj_result_t nj_error{NJ_OK};
+#define njThrow(e) { if (nj_error == NJ_OK ) nj_error = e; return; }
 
 #ifndef HAS_BUILTIN_CLZ
 #if defined(__has_builtin)
@@ -53,7 +60,8 @@ namespace nanojpeg
 #define HAS_BUILTIN_CLZ
 #endif
 #else
-#if defined(_MSC_VER)#include <intrin.h>
+#if defined(_MSC_VER)
+#include <intrin.h>
 #pragma intrinsic(_BitScanReverse)
     inline int __builtin_clz(unsigned long mask)
     {
@@ -66,7 +74,7 @@ namespace nanojpeg
     }
 #define HAS_BUILTIN_CLZ
 #else
-    constexpr inline int __builtin_clz(unsigned long mask)
+    inline int __builtin_clz(unsigned long mask)
     {
         if (mask == 0)
             return 32;
@@ -79,10 +87,12 @@ namespace nanojpeg
 #endif
 #endif
 
-    constexpr inline int leading_ones(int peek)
+    inline int leading_ones(int peek)
     {
         return __builtin_clz(~(peek << 16));
     }
+
+
 
     constexpr inline uint8_t njClip(int x)
     {
@@ -322,28 +332,38 @@ inline void idct8(float8 * v, unsigned char* out, int stride)
 }
 
 
-inline void transpose(float8 *a) {
+// inline void transpose(float8 *a) {
 
-    float8 tmp[8];
+//     float8 tmp[8];
 
+//     #pragma omp simd
+//     for (int i =0; i < float8::simd_size; ++i)
+//     {
+//         for (int j = 0; j < float8::simd_size; ++j)
+//         {
+//             tmp[i][j] = a[j][i];
+//         }
+//     }
+
+//     #pragma omp simd
+//     for (int i =0; i < float8::simd_size; ++i)
+//     {
+//         a[i] = tmp[i];
+//     }
+
+// }
+
+inline void transpose(float8 *a8) {
+
+    float* a = (float *)a8;
     #pragma omp simd
-    for (int i =0; i < float8::simd_size; ++i)
-    {
-        for (int j = 0; j < float8::simd_size; ++j)
-        {
-            tmp[i][j] = a[j][i];
-        }
-    }
-
-    #pragma omp simd
-    for (int i =0; i < float8::simd_size; ++i)
-    {
-        a[i] = tmp[i];
-    }
-
+    for(int i=0; i<8-1; i++)
+        for(int j=i+1; j<8; j++)
+            std::swap(a[i*8+j],a[j*8+i]);
 }
 
-static void idct8x8(float8 * block, unsigned char*out, int stride)
+
+inline void idct8x8(float8 * block, unsigned char*out, int stride)
 {
     idct8(block,nullptr,0);
     transpose(block);
@@ -541,7 +561,11 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
             const auto symbolbit = find(peek >> 16);
             uint32_t codelen = symbolbit & 0xff;
             if (codelen == 0 || codelen > 16)
-                njThrow(NJ_INTERNAL_ERR);
+            {
+                if (nj_error == NJ_OK)
+                    nj_error = NJ_INTERNAL_ERR;
+                return std::make_pair(0,uint8_t{});
+            }
 
             uint8_t code = uint8_t(symbolbit >> 8);
             uint32_t bits = code & 0xfU; // number of extra bits
@@ -604,14 +628,14 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
             dcpred += std::get<0>( dc->njGetVLC(bs) );
             //transponsed!!!
             static const uint8_t ZZ[64] =
-            {0,8,1,2,9,16,24,17,10,
-            3,4,11,18,25,32,40,33,
-            26,19,12,5,6,13,20,27,
-            34,41,48,56,49,42,35,28,
-            21,14,7,15,22,29,36,43,
-            50,57,58,51,44,37,30,23,
-            31,38,45,52,59,60,53,46,
-            39,47,54,61,62,55,63};
+            {0,  8,  1,  2,  9, 16, 24, 17,
+            10,  3,  4, 11, 18, 25, 32, 40,
+            33, 26, 19, 12,  5,  6, 13, 20,
+            27, 34, 41, 48, 56, 49, 42, 35,
+            28, 21, 14,  7, 15, 22, 29, 36,
+            43, 50, 57, 58, 51, 44, 37, 30,
+            23, 31, 38, 45, 52, 59, 60, 53,
+            46, 39, 47, 54, 61, 62, 55, 63};
 
             block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
 
@@ -622,15 +646,18 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
                 auto [value, code] = ac->njGetVLC(bs);
                 if (!code)
                     break; // EOB
-                // if (!(code & 0x0F) && (code != 0xF0))
-                //     njThrow(NJ_SYNTAX_ERROR);
+                if (!(code & 0x0F) && (code != 0xF0))
+                     njThrow(NJ_SYNTAX_ERROR);
                 coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
-                // if (coef > 63)
-                // {
-                //     njThrow(NJ_SYNTAX_ERROR);
-                // }
+                if (coef > 63)
+                {
+                    njThrow(NJ_SYNTAX_ERROR);
+                }
                 block[ZZ[coef]] = value * qtab[coef]; // DCT coefficients scaling and quantization
             } while (coef < 63);
+
+            if (nj_error != NJ_OK)
+                return;
 
             if (coef)
             {
@@ -694,6 +721,7 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
 
         inline void Decode()
         {
+            nj_error = NJ_OK;
             if (size < 2)
                 njThrow(NJ_NO_JPEG);
             if (njDecode16(pos) != 0xFFD8)
@@ -725,6 +753,8 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
                     break;
                 case 0xDA:
                     DecodeScan();
+                    if ( nj_error == NJ_OK )
+                        nj_error = __NJ_FINISHED;
                     return;
                 case 0xFE:
                     SkipMarker();
@@ -984,6 +1014,8 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
                             for (int sbx = 0; sbx < c.ssx; ++sbx)
                             {
                                 c.njDecodeBlock(bitstream,  c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
+                                if (nj_error != NJ_OK)
+                                    return;
                             }
                     }
                     if (rstinterval && !(--rstcount) && ( mby != mbheight-1 ))
@@ -1040,12 +1072,17 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
         std::vector<nj_plane> planes{};
     };
 
-    nj_result decode(const uint8_t *jpeg, size_t size)
+    static nj_result decode(const uint8_t *jpeg, size_t size)
     {
         nj_context_t nj{}; // clear context
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
+        if (nj_error != __NJ_FINISHED) {
+            if ( nj_error == NJ_OK )
+                nj_error = NJ_NO_JPEG;
+            throw nj_exception(nj_error);
+        }
         nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::vector<nj_plane>(nj.comp.size()) };
         for (int i = 0; i < nj.ncomp; ++i)
         {
@@ -1061,7 +1098,7 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
         return res;
     }
 
-    void decode(const uint8_t* jpeg, size_t size,  nj_result & reuse)
+    static void decode(const uint8_t* jpeg, size_t size,  nj_result & reuse)
     {
         nj_context_t   nj{}; // clear context
         nj.pos = jpeg;
@@ -1072,6 +1109,11 @@ static void idct8x8(float8 * block, unsigned char*out, int stride)
            nj.comp[i].pixels = std::move(reuse.planes[i].pixels);
         }
         nj.Decode();
+        if (nj_error != __NJ_FINISHED) {
+            if ( nj_error == NJ_OK )
+                nj_error = NJ_NO_JPEG;
+            throw nj_exception(nj_error);
+        }
         nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::vector<nj_plane>(nj.comp.size()) };
         for (int i = 0; i < nj.ncomp; ++i)
         {

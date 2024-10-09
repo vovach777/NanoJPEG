@@ -13,46 +13,14 @@
 #include "stb_image_write.h"
 #include "turbojpeg.h"
 
-#ifndef stbi__float2fixed
-#define stbi__float2fixed(x) (((int)((x) * 4096.0f + 0.5f)) << 8)
-#endif
-template <typename T>
-constexpr inline void YCbCr_to_RGB(int y, int cb, int cr, T &r_, T &g_, T &b_)
+constexpr inline auto YCbCr_to_RGB(int y, int cb, int cr)
 {
-    int y_fixed = (y << 20) + (1 << 19); // rounding
-    int r{}, g{}, b{};
-    cr -= 128;
-    cb -= 128;
-    r = y_fixed + cr * stbi__float2fixed(1.40200f);
-    g = y_fixed + (cr * -stbi__float2fixed(0.71414f)) + ((cb * -stbi__float2fixed(0.34414f)) & 0xffff0000);
-    b = y_fixed + cb * stbi__float2fixed(1.77200f);
-    r >>= 20;
-    g >>= 20;
-    b >>= 20;
-    if ((unsigned)r > 255)
-    {
-        if (r < 0)
-            r = 0;
-        else
-            r = 255;
-    }
-    if ((unsigned)g > 255)
-    {
-        if (g < 0)
-            g = 0;
-        else
-            g = 255;
-    }
-    if ((unsigned)b > 255)
-    {
-        if (b < 0)
-            b = 0;
-        else
-            b = 255;
-    }
-    r_ = r;
-    g_ = g;
-    b_ = b;
+    const float cr_ = cr - 128;
+    const float cb_ = cb - 128;
+    return std::make_tuple(
+            nanojpeg::njClip(y + cr_ * 1.40200f),
+            nanojpeg::njClip(y + cr_ * -0.71414f + cb_ * -0.34414f),
+            nanojpeg::njClip(y + cb_ * 1.77200f) );
 }
 
 template <bool is_ycck, int planes_nb, typename YUV_, typename RGB_>
@@ -75,8 +43,7 @@ inline void convert(YUV_ &&yuv, RGB_ &&rgb, int width, int height)
                 auto y = yuv(0, x, h);
                 auto u = yuv(1, x, h);
                 auto v = yuv(2, x, h);
-                int r, g, b;
-                YCbCr_to_RGB(y, u, v, r, g, b);
+                auto [r, g, b] = YCbCr_to_RGB(y, u, v);
                 rgb(x, h, r, g, b);
             }
             else
@@ -87,8 +54,7 @@ inline void convert(YUV_ &&yuv, RGB_ &&rgb, int width, int height)
                 const auto k = yuv(3, x, h);
                 if constexpr (is_ycck)
                 {
-                    int ir, ig, ib;
-                    YCbCr_to_RGB(c, m, y, ir, ig, ib);
+                    auto [ir, ig, ib] = YCbCr_to_RGB(c, m, y);
                     const auto r = nanojpeg::njClip((255 - ir) * k / 255);
                     const auto g = nanojpeg::njClip((255 - ig) * k / 255);
                     const auto b = nanojpeg::njClip((255 - ib) * k / 255);
@@ -174,7 +140,6 @@ namespace profiling
 }
 using profiling::StopWatch;
 
-__attribute__((noinline, optnone))
 static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fastDCT)
 {
 
@@ -209,7 +174,6 @@ static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, 
     return njheader.comp;
 }
 
-__attribute__((noinline, optnone))
 static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
 {
     nanojpeg::nj_context_t njheader{};
@@ -229,14 +193,12 @@ static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
     return frame;
 }
 
-__attribute__((noinline, optnone))
 static void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *buf, size_t size, nanojpeg::nj_result &frame)
 {
     bench.start();
     nanojpeg::decode(buf, size, frame);
     bench.stop();
 }
-
 
 inline void print_stat(std::string title, double elapsed, double imgMPixSize, size_t streamSize, int times)
 {

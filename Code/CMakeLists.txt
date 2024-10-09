@@ -1,7 +1,6 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.30)
 project(nanojpeg)
-set(CMAKE_SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR})
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+#set(CMAKE_SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(CMAKE_CXX_STANDARD 17)
 string(TOUPPER ${CMAKE_BUILD_TYPE} CONFIG)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
@@ -9,9 +8,9 @@ add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 add_executable(nanojpeg app.cpp nanojpeg.hpp)
 set_target_properties(nanojpeg PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-string(APPEND CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx  -fopenmp-simd")
+string(APPEND CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -msse4.2 -mavx  -fopenmp-simd")
 
-#string(APPEND CMAKE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++ -nostdlib -Wl,--exclude-libs,msvcrt.a -Wl,-eWinMain")
+string(APPEND CMAKE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
 
 find_package(Stb REQUIRED)
 target_include_directories(nanojpeg PRIVATE ${Stb_INCLUDE_DIR})
