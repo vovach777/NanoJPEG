@@ -1,7 +1,0 @@
-{
-  "dependencies": [
-    "mio",
-    "stb",
-    "libjpeg-turbo"
-  ]
-}

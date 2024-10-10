@@ -1,143 +1,17 @@
 #include <iostream>
 #include <fstream>
-#include <sstream>
-#include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
-#include <optional>
-#include "nanojpeg.hpp"
 #include <mio/mmap.hpp>
 #include <algorithm>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 #include "turbojpeg.h"
+#include "profiling.hpp"
+#include "converter.hpp"
+#include "nanojpeg.hpp"
 
-constexpr inline auto YCbCr_to_RGB(int y, int cb, int cr)
-{
-    const float cr_ = cr - 128;
-    const float cb_ = cb - 128;
-    return std::make_tuple(
-            nanojpeg::njClip(y + cr_ * 1.40200f),
-            nanojpeg::njClip(y + cr_ * -0.71414f + cb_ * -0.34414f),
-            nanojpeg::njClip(y + cb_ * 1.77200f) );
-}
-
-template <bool is_ycck, int planes_nb, typename YUV_, typename RGB_>
-inline void convert(YUV_ &&yuv, RGB_ &&rgb, int width, int height)
-{
-
-    for (int h = 0; h < height; ++h)
-        for (int x = 0; x < width; ++x)
-        {
-            if constexpr (planes_nb == 1)
-            {
-                rgb(x, h, std::clamp(yuv(0, x, h), 0, 255));
-            }
-            else if constexpr (planes_nb == 2)
-            {
-                rgb(x, h, std::clamp(yuv(0, x, h), 0, 255), std::clamp(yuv(1, x, h), 0, 255));
-            }
-            else if constexpr (planes_nb == 3)
-            {
-                auto y = yuv(0, x, h);
-                auto u = yuv(1, x, h);
-                auto v = yuv(2, x, h);
-                auto [r, g, b] = YCbCr_to_RGB(y, u, v);
-                rgb(x, h, r, g, b);
-            }
-            else
-            {
-                const auto c = yuv(0, x, h);
-                const auto m = yuv(1, x, h);
-                const auto y = yuv(2, x, h);
-                const auto k = yuv(3, x, h);
-                if constexpr (is_ycck)
-                {
-                    auto [ir, ig, ib] = YCbCr_to_RGB(c, m, y);
-                    const auto r = nanojpeg::njClip((255 - ir) * k / 255);
-                    const auto g = nanojpeg::njClip((255 - ig) * k / 255);
-                    const auto b = nanojpeg::njClip((255 - ib) * k / 255);
-                    rgb(x, h, r, g, b);
-                }
-                else
-                {
-                    const auto r = nanojpeg::njClip(c * k / 255);
-                    const auto g = nanojpeg::njClip(m * k / 255);
-                    const auto b = nanojpeg::njClip(y * k / 255);
-                    rgb(x, h, r, g, b);
-                }
-            }
-        }
-}
-
-template <typename YUV_, typename RGB_>
-inline void convert(nanojpeg::nj_result &image, YUV_ &&yuv, RGB_ &&rgb)
-{
-    switch (image.planes.size())
-    {
-    case 1:
-        convert<false, 1>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
-        break;
-    case 2:
-        convert<false, 2>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
-        break;
-    case 3:
-        convert<false, 3>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
-        break;
-    case 4:
-        if (image.is_ycck)
-            convert<true, 4>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
-        else
-            convert<false, 4>(std::forward<YUV_>(yuv), std::forward<RGB_>(rgb), image.width, image.height);
-        break;
-    default:
-        throw std::runtime_error("invalid number of planes");
-    }
-}
-
-namespace profiling
-{
-    using std::chrono::duration;
-    using std::chrono::high_resolution_clock;
-
-    struct StopWatch
-    {
-        std::optional<high_resolution_clock::time_point> start_point{};
-        double elapsed_total{};
-
-        inline void startnew()
-        {
-            elapsed_total = 0.0;
-            start();
-        }
-
-        inline void start()
-        {
-            if (!start_point)
-                start_point = high_resolution_clock::now();
-        }
-
-        inline bool is_running() const { return start_point.has_value(); }
-
-        inline double elapsed() const
-        {
-            return elapsed_total + ((start_point) ? duration<double>(high_resolution_clock::now() - *start_point).count() : 0);
-        }
-        void stop()
-        {
-            if (start_point)
-            {
-                elapsed_total += duration<double>(high_resolution_clock::now() - *start_point).count();
-                start_point.reset();
-            }
-        }
-        std::string elapsed_str() const
-        {
-            return std::string((std::stringstream() << std::fixed << std::setprecision(9) << elapsed()).str());
-        };
-    };
-}
 using profiling::StopWatch;
 
 static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fastDCT)
@@ -176,20 +50,10 @@ static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, 
 
 static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
 {
-    nanojpeg::nj_context_t njheader{};
-    njheader.pos = buf;
-    njheader.size = size;
-    njheader.DecodeSOF<true, false>();
-    nanojpeg::nj_result frame{};
-    //avoide memory allocation in nanojpeg side
-    frame.planes.resize( njheader.ncomp );
-    for (int i = 0; i < njheader.ncomp; i++) {
-        frame.planes[i].pixels.resize( njheader.comp[i].size);
-    }
-
     bench.start();
-    nanojpeg::decode(buf, size, frame);
+    auto frame = nanojpeg::decode(buf, size);
     bench.stop();
+    bench.elapsed_total -= frame.allocation_time;
     return frame;
 }
 
@@ -297,7 +161,7 @@ int main(int argc, char **argv)
             std::cout << "* " << image.width << "x" << image.height << std::endl;
         }
 
-        int times = std::clamp(1024 * 1024 * 256.0 / image.size,1.,10000.);
+        int times = std::clamp(1024 * 1024 * 256.0 / image.size / 3,1.,10000.);
         std::cout << "Benchmarking repeats " << times << " times. Every dot is 100 frames." << std::endl;
 
         bool turbo_ok = true;
@@ -350,7 +214,7 @@ int main(int argc, char **argv)
         std::vector<uint8_t> rgb(image.width * image.height * comp_nb);
         convert_time.start();
         auto rgb_out = rgb.data();
-        convert(image, [&comp = image.planes](int comp_n, int x, int y)
+        convert(image.width, image.height, image.planes.size(), image.is_ycck,  [&comp = image.planes](int comp_n, int x, int y)
                 {   x >>= comp[comp_n].chroma_w_log2;
                     y >>= comp[comp_n].chroma_h_log2;
                     return (int)comp[comp_n].pixels[ y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)

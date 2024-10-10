@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
+#include "profiling.hpp"
 
 namespace nanojpeg
 {
@@ -353,13 +354,52 @@ inline void idct8(float8 * v, unsigned char* out, int stride)
 
 // }
 
-inline void transpose(float8 *a8) {
+#ifdef __AVX__
+#include <x86intrin.h>
+#endif
+inline void transpose(float8 *a8)
+{
+#ifdef __AVX__
+__m256* m8 = reinterpret_cast<__m256*>(a8);
+__m256 &row0=m8[0];__m256 &row1=m8[1];__m256 &row2=m8[2];__m256 &row3=m8[3];__m256 &row4=m8[4];__m256 &row5=m8[5];__m256 &row6=m8[6];__m256 &row7=m8[7];
+__m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
+__m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
+__t0 = _mm256_unpacklo_ps(row0, row1);
+__t1 = _mm256_unpackhi_ps(row0, row1);
+__t2 = _mm256_unpacklo_ps(row2, row3);
+__t3 = _mm256_unpackhi_ps(row2, row3);
+__t4 = _mm256_unpacklo_ps(row4, row5);
+__t5 = _mm256_unpackhi_ps(row4, row5);
+__t6 = _mm256_unpacklo_ps(row6, row7);
+__t7 = _mm256_unpackhi_ps(row6, row7);
+__tt0 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
+__tt1 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
+__tt2 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
+__tt3 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
+__tt4 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
+__tt5 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
+__tt6 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
+__tt7 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
+row0 = _mm256_permute2f128_ps(__tt0, __tt4, 0x20);
+row1 = _mm256_permute2f128_ps(__tt1, __tt5, 0x20);
+row2 = _mm256_permute2f128_ps(__tt2, __tt6, 0x20);
+row3 = _mm256_permute2f128_ps(__tt3, __tt7, 0x20);
+row4 = _mm256_permute2f128_ps(__tt0, __tt4, 0x31);
+row5 = _mm256_permute2f128_ps(__tt1, __tt5, 0x31);
+row6 = _mm256_permute2f128_ps(__tt2, __tt6, 0x31);
+row7 = _mm256_permute2f128_ps(__tt3, __tt7, 0x31);
 
-    float* a = (float *)a8;
-    #pragma omp simd
+#else
     for(int i=0; i<8-1; i++)
         for(int j=i+1; j<8; j++)
-            std::swap(a[i*8+j],a[j*8+i]);
+        {
+           // std::swap(a8[i].data[j],a8[j].data[i]);
+           const auto tmp =a8[i].data[j];
+           a8[i].data[j] = a8[j].data[i];
+           a8[j].data[i] = tmp;
+
+        }
+#endif
 }
 
 
@@ -596,15 +636,15 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         int chroma_w_log2{};
         int chroma_h_log2{};
         int stride{};
-        // int qtsel{};
-        // int actabsel{}, dctabsel{};
-        float *qtab{};
-        HuffCodeDC *dc{};
-        HuffCodeAC *ac{};
+        int qtsel{};
+        int actabsel{}, dctabsel{};
         int dcpred{};
         int size{};
         std::vector<uint8_t> pixels{};
-        inline void njDecodeBlock(BitstreamContext &bs, uint8_t * out)
+
+    };
+
+        inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,const float *qtab, uint8_t * out, int stride)
         {
             alignas(32) union {
                 float data[64]{};
@@ -625,7 +665,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             } block;
 
             // DC coef
-            dcpred += std::get<0>( dc->njGetVLC(bs) );
+            dcpred += std::get<0>( dc.njGetVLC(bs) );
             //transponsed!!!
             static const uint8_t ZZ[64] =
             {0,  8,  1,  2,  9, 16, 24, 17,
@@ -643,7 +683,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
 
             do
             {
-                auto [value, code] = ac->njGetVLC(bs);
+                auto [value, code] = ac.njGetVLC(bs);
                 if (!code)
                     break; // EOB
                 if (!(code & 0x0F) && (code != 0xF0))
@@ -675,8 +715,6 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
         }
 
-    };
-
     struct nj_context_t
     {
         const uint8_t *pos{};
@@ -686,6 +724,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         int mbwidth{}, mbheight{};
         int mbsizex{}, mbsizey{};
         int ncomp{};
+        profiling::StopWatch allocations_penalty{};
         std::vector<nj_component_t> comp{};
         //int qtused{}, qtavail{};
         std::vector<std::array<float, 64>> qtab{};
@@ -836,7 +875,9 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
             if (length < (ncomp * 3))
                 njThrow(NJ_SYNTAX_ERROR);
+            allocations_penalty.start();
             comp.resize(ncomp);
+            allocations_penalty.stop();
             for (auto &c : comp)
             {
                 c.cid = pos[0];
@@ -850,8 +891,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                     njThrow(NJ_UNSUPPORTED); // non-power of two
                 if ((pos[2]) & 0xFC)
                     njThrow(NJ_SYNTAX_ERROR);
-                if ( qtab.size() == 4)
-                    c.qtab = qtab[ pos[2] ].data();
+                c.qtsel = pos[2];
                 Skip(3);
                 //qtused |= 1 << c.qtsel;
                 if (c.ssx > ssxmax)
@@ -879,7 +919,9 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 c.size = c.stride * mbheight * c.ssy << 3;
                 if constexpr (allocate_memory)
                 {
+                    allocations_penalty.start();
                     c.pixels.resize(c.size);
+                    allocations_penalty.stop();
                 }
 
                 int srcw = c.width;
@@ -901,8 +943,10 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         inline void DecodeDHT(void)
         {
             DecodeLength();
+            allocations_penalty.start();
             huff_DC.resize(2);
             huff_AC.resize(2);
+            allocations_penalty.stop();
             while (length >= 17)
             {
                 int i = pos[0];
@@ -950,7 +994,9 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                  118, 91, 49, 46, 81, 101, 101, 81,
                  46, 42, 69, 79, 69, 42, 35, 54,
                  54, 35, 28, 37, 28, 19, 19, 10};
+            allocations_penalty.start();
             qtab.resize(4);
+            allocations_penalty.stop();
             while (length >= 65)
             {
                 int i = pos[0];
@@ -990,8 +1036,8 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                     njThrow(NJ_SYNTAX_ERROR);
                 if (pos[1] & 0xEE)
                     njThrow(NJ_SYNTAX_ERROR);
-                c.dc = &huff_DC[ (pos[1] >> 4) & 1 ];
-                c.ac = &huff_AC[ (pos[1] & 1) ];
+                c.dctabsel = (pos[1] >> 4) & 1;
+                c.actabsel = (pos[1] & 1);
                 Skip(2);
             }
 
@@ -1013,7 +1059,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                         for (int sby = 0; sby < c.ssy; ++sby)
                             for (int sbx = 0; sbx < c.ssx; ++sbx)
                             {
-                                c.njDecodeBlock(bitstream,  c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3));
+                                njDecodeBlock(bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
                                 if (nj_error != NJ_OK)
                                     return;
                             }
@@ -1069,6 +1115,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         size_t size{};
         bool is_ycck{};
         int yuv_format{}; // native form; 444 = yuv444, 422 = yuv422, 420 = yuv420, 411 = yuv411, 400 = yuv400
+        double allocation_time{};
         std::vector<nj_plane> planes{};
     };
 
@@ -1078,12 +1125,13 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         nj.pos = jpeg;
         nj.size = size;
         nj.Decode();
+
         if (nj_error != __NJ_FINISHED) {
             if ( nj_error == NJ_OK )
                 nj_error = NJ_NO_JPEG;
             throw nj_exception(nj_error);
         }
-        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::vector<nj_plane>(nj.comp.size()) };
+        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), nj.allocations_penalty.elapsed_total, std::vector<nj_plane>(nj.comp.size()) };
         for (int i = 0; i < nj.ncomp; ++i)
         {
             auto& src   = nj.comp[i];
@@ -1114,7 +1162,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 nj_error = NJ_NO_JPEG;
             throw nj_exception(nj_error);
         }
-        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), std::vector<nj_plane>(nj.comp.size()) };
+        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), nj.allocations_penalty.elapsed_total, std::vector<nj_plane>(nj.comp.size()) };
         for (int i = 0; i < nj.ncomp; ++i)
         {
             auto& src   = nj.comp[i];
