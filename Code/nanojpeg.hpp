@@ -646,7 +646,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
 
         inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,const float *qtab, uint8_t * out, int stride)
         {
-            alignas(32) union {
+            alignas(32) union Block {
                 float data[64]{};
                 float8 rows[8];
                 constexpr float operator [](int i) const {
@@ -661,6 +661,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 constexpr operator float8*(){
                     return &rows[0];
                 }
+                constexpr Block() {}
 
             } block;
 

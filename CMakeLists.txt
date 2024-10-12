@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.20)
 set(CMAKE_CXX_STANDARD 17)
 string(TOUPPER ${CMAKE_BUILD_TYPE} CONFIG)
 add_definitions(-D_USE_MATH_DEFINES -DNOMINMAX )
 project(nanojpeg)
-#add_compile_options( -Xclang -fopenmp-simd)
+add_compile_options( -mavx2 -march=native)
 add_executable(nanojpeg Code/app.cpp Code/nanojpeg.hpp Code/profiling.hpp Code/converter.hpp)
 
 find_package(Stb REQUIRED)
