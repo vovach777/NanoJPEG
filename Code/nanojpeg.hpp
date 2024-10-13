@@ -316,7 +316,7 @@ inline void idct8(float8 * v, unsigned char* out, int stride)
         {
             for (int j=0; j < 8; ++j)
             {
-                out[j] = njClip( std::begin(v)[i][j]);
+                out[j] = njClip( std::cbegin(v)[i][j]);
             }
             out += stride;
         }
@@ -331,28 +331,6 @@ inline void idct8(float8 * v, unsigned char* out, int stride)
         v[7] = tmp0 - tmp7;
     }
 }
-
-
-// inline void transpose(float8 *a) {
-
-//     float8 tmp[8];
-
-//     #pragma omp simd
-//     for (int i =0; i < float8::simd_size; ++i)
-//     {
-//         for (int j = 0; j < float8::simd_size; ++j)
-//         {
-//             tmp[i][j] = a[j][i];
-//         }
-//     }
-
-//     #pragma omp simd
-//     for (int i =0; i < float8::simd_size; ++i)
-//     {
-//         a[i] = tmp[i];
-//     }
-
-// }
 
 #ifdef __AVX__
 #include <x86intrin.h>
