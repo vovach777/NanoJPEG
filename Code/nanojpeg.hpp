@@ -393,11 +393,7 @@ row7 = _mm256_permute2f128_ps(__tt3, __tt7, 0x31);
     for(int i=0; i<8-1; i++)
         for(int j=i+1; j<8; j++)
         {
-           // std::swap(a8[i].data[j],a8[j].data[i]);
-           const auto tmp =a8[i].data[j];
-           a8[i].data[j] = a8[j].data[i];
-           a8[j].data[i] = tmp;
-
+           std::swap(a8[i][j],a8[j][i]);
         }
 #endif
 }
