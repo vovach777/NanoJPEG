@@ -300,14 +300,14 @@ inline void idct8(float8 * v, unsigned char* out, int stride)
     if ( out ) {
 
         auto v = {
-                    tmp0 + tmp7,
-                    tmp1 + tmp6,
-                    tmp2 + tmp5,
-                    tmp3 + tmp4,
-                    tmp3 - tmp4,
-                    tmp2 - tmp5,
-                    tmp1 - tmp6,
-                    tmp0 - tmp7,
+                    tmp0 + tmp7 + 128.5f,
+                    tmp1 + tmp6 + 128.5f,
+                    tmp2 + tmp5 + 128.5f,
+                    tmp3 + tmp4 + 128.5f,
+                    tmp3 - tmp4 + 128.5f,
+                    tmp2 - tmp5 + 128.5f,
+                    tmp1 - tmp6 + 128.5f,
+                    tmp0 - tmp7 + 128.5f,
                     };
 
 
@@ -316,7 +316,7 @@ inline void idct8(float8 * v, unsigned char* out, int stride)
         {
             for (int j=0; j < 8; ++j)
             {
-                out[j] = njClip( std::begin(v)[i][j] + 128.5f);
+                out[j] = njClip( std::begin(v)[i][j]);
             }
             out += stride;
         }
