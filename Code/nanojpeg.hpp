@@ -740,11 +740,13 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         inline void Decode()
         {
             nj_error = NJ_OK;
-            if (size < 2)
+
+            auto sequence = {0xff, 0xd8};
+            auto newpos = std::search(pos, pos + size, sequence.begin(), sequence.end());
+            if ( newpos == pos + size)
                 njThrow(NJ_NO_JPEG);
-            if (njDecode16(pos) != 0xFFD8)
-                njThrow(NJ_NO_JPEG);
-            Skip(2);
+            Skip(newpos - pos + 2);
+
             while (nj_error==NJ_OK)
             {
 
@@ -1133,11 +1135,11 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 nj_error = NJ_NO_JPEG;
             throw nj_exception(nj_error);
         }
-        nj_result res{ nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), nj.allocations_penalty.elapsed_total, std::vector<nj_plane>(nj.comp.size()) };
+        reuse = { nj.width, nj.height, size - nj.size, nj.is_ycck && nj.ncomp == 4, nj.get_yuv_format(), nj.allocations_penalty.elapsed_total, std::vector<nj_plane>(nj.comp.size()) };
         for (int i = 0; i < nj.ncomp; ++i)
         {
             auto& src   = nj.comp[i];
-            auto& dst  = res.planes[i];
+            auto& dst  = reuse.planes[i];
             dst.width = src.width;
             dst.height = src.height;
             dst.stride = src.stride;

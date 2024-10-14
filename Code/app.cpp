@@ -115,13 +115,13 @@ int main(int argc, char **argv)
             std::ofstream fileyuv_file( std::string(argv[1]) + ".y4m", std::ios::binary | std::ios::out | std::ios::trunc);
             nanojpeg::nj_result frame{};
 
+            try
+            {
             while (size > 0)
             {
-                motion_time.start();
                 nanojpeg_motion_bench(motion_time, pos, size,frame);
                 pos   += frame.size;
                 size  -= frame.size;
-                motion_time.stop();
                 times+=1;
                 if (times == 1) {
                     //header
@@ -145,6 +145,10 @@ int main(int argc, char **argv)
                     }
                 }
                 fileyuv_file.flush();
+            }
+            }
+            catch (const nanojpeg::nj_exception & e) {
+                std::cerr << std::endl << "truncated mjpeg stream: " <<  e.what() << " NJ_ERROR: " << e.value <<  std::endl;
             }
             std::cout << std::endl;
             auto imgMPixSize = frame.width * frame.height * 1e-6;
