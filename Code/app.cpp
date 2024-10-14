@@ -6,7 +6,7 @@
 #include <mio/mmap.hpp>
 #include <algorithm>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include <stb_image_write.h>
 #include "turbojpeg.h"
 #include "profiling.hpp"
 #include "converter.hpp"
@@ -48,7 +48,7 @@ static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, 
     return njheader.comp;
 }
 
-static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
+auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
 {
     bench.start();
     auto frame = nanojpeg::decode(buf, size);
@@ -57,10 +57,11 @@ static auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
     return frame;
 }
 
-static void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *buf, size_t size, nanojpeg::nj_result &frame)
+void nanojpeg_motion_bench(StopWatch &bench, const uint8_t *buf, size_t size, nanojpeg::nj_result &frame)
 {
     bench.start();
     nanojpeg::decode(buf, size, frame);
+    bench.elapsed_total -= frame.allocation_time;
     bench.stop();
 }
 

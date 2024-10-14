@@ -75,22 +75,26 @@ inline thread_local nj_result_t nj_error{NJ_OK};
     }
 #define HAS_BUILTIN_CLZ
 #else
-    inline int __builtin_clz(unsigned long mask)
-    {
-        if (mask == 0)
-            return 32;
-        int where = 31;
-        while ((mask & (1UL << where)) == 0)
-            where--;
-        return 32 - where;
-    }
+    // inline int __builtin_clz(unsigned long mask)
+    // {
+    //     if (mask == 0)
+    //         return 32;
+    //     int where = 31;
+    //     while ((mask & (1UL << where)) == 0)
+    //         where--;
+    //     return 32 - where;
+    // }
 #endif
 #endif
 #endif
 
     inline int leading_ones(int peek)
     {
+        #ifdef HAS_BUILTIN_CLZ
         return __builtin_clz(~(peek << 16));
+        #else
+        return 0;
+        #endif
     }
 
 
@@ -101,7 +105,7 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         return std::clamp(x, 0, 0xFF);
     }
 
-    inline int njDecode16(const uint8_t *pos)
+    constexpr inline int njDecode16(const uint8_t *pos)
     {
         return (pos[0] << 8) | pos[1];
     }
@@ -418,7 +422,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         const uint8_t *ptr = nullptr; // pointer to the position inside a buffer
         int bits_valid = 0;           // number of bits left in bits field
 
-        void set_buffer(const uint8_t *buffer, int64_t buffer_size)
+        constexpr BitstreamContext(const uint8_t *buffer, int64_t buffer_size)
         {
             buffer_end = buffer + buffer_size;
             ptr = buffer;
@@ -426,7 +430,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             bits = 0;
         }
 
-        inline uint8_t readjbyte()
+        constexpr inline uint8_t readjbyte()
         {
             if (ptr < buffer_end)
             {
@@ -443,7 +447,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             return 0;
         }
 
-        void refill()
+        constexpr void refill()
         {
             while (bits_valid <= 56)
             {
@@ -452,13 +456,13 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
         }
 
-        inline void skip(int n)
+        constexpr inline void skip(int n)
         {
             bits <<= n;
             bits_valid -= n;
         }
 
-        inline uint32_t peek()
+        constexpr inline uint32_t peek()
         {
             if (bits_valid<32)
                 refill();
@@ -594,7 +598,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             return symbolbits;
         }
 
-        auto njGetVLC(BitstreamContext &bs) const
+        inline auto njGetVLC(BitstreamContext &bs) const
         {
 
             uint32_t peek = bs.peek();
@@ -644,7 +648,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
 
     };
 
-        inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,const float *qtab, uint8_t * out, int stride)
+        inline void njDecodeBlock(profiling::StopWatch &profile, BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,const float *qtab, uint8_t * out, int stride)
         {
             alignas(32) union {
                 float data[64]{};
@@ -766,7 +770,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             if (njDecode16(pos) != 0xFFD8)
                 njThrow(NJ_NO_JPEG);
             Skip(2);
-            while (1)
+            while (nj_error==NJ_OK)
             {
 
                 if ((size < 2) || (pos[0] != 0xFF))
@@ -875,9 +879,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
             if (length < (ncomp * 3))
                 njThrow(NJ_SYNTAX_ERROR);
-            allocations_penalty.start();
             comp.resize(ncomp);
-            allocations_penalty.stop();
             for (auto &c : comp)
             {
                 c.cid = pos[0];
@@ -919,9 +921,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 c.size = c.stride * mbheight * c.ssy << 3;
                 if constexpr (allocate_memory)
                 {
-                    allocations_penalty.start();
                     c.pixels.resize(c.size);
-                    allocations_penalty.stop();
                 }
 
                 int srcw = c.width;
@@ -943,10 +943,8 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         inline void DecodeDHT(void)
         {
             DecodeLength();
-            allocations_penalty.start();
             huff_DC.resize(2);
             huff_AC.resize(2);
-            allocations_penalty.stop();
             while (length >= 17)
             {
                 int i = pos[0];
@@ -994,9 +992,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                  118, 91, 49, 46, 81, 101, 101, 81,
                  46, 42, 69, 79, 69, 42, 35, 54,
                  54, 35, 28, 37, 28, 19, 19, 10};
-            allocations_penalty.start();
             qtab.resize(4);
-            allocations_penalty.stop();
             while (length >= 65)
             {
                 int i = pos[0];
@@ -1044,8 +1040,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             if (pos[0] || (pos[1] != 63) || pos[2])
                 njThrow(NJ_UNSUPPORTED);
             Skip(length);
-            BitstreamContext bitstream{};
-            bitstream.set_buffer(pos, size);
+            BitstreamContext bitstream(pos, size);
             int rstcount = rstinterval, nextrst = 0;
 
             for (int mby = 0; mby < mbheight; ++mby)
@@ -1053,13 +1048,14 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 for (int mbx = 0; mbx < mbwidth; ++mbx)
                 {
 
+
                     for (auto &c : comp)
                     {
 
                         for (int sby = 0; sby < c.ssy; ++sby)
                             for (int sbx = 0; sbx < c.ssx; ++sbx)
                             {
-                                njDecodeBlock(bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
+                                njDecodeBlock(allocations_penalty, bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
                                 if (nj_error != NJ_OK)
                                     return;
                             }
@@ -1084,7 +1080,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                         if ((code & 7) != nextrst)
                             njThrow(NJ_SYNTAX_ERROR);
 
-                        bitstream.set_buffer(pos, size);
+                        bitstream = BitstreamContext(pos, size);
                         nextrst = (nextrst + 1) & 7;
                         rstcount = rstinterval;
                         for (auto &c : comp)
