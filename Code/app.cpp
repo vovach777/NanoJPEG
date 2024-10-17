@@ -7,7 +7,7 @@
 #include <algorithm>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
-#include "turbojpeg.h"
+#include <turbojpeg.h>
 #include "profiling.hpp"
 #include "converter.hpp"
 #include "nanojpeg.hpp"
@@ -33,7 +33,7 @@ static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, 
     } tj3handleRAII(tj3Init(TJINIT_DECOMPRESS));
 
     // tj3DecompressHeader(tj3handleRAII.handle, buf, size); //without this call we can not retrive the buffer size
-    njheader.allocate_pixels(); // bench memory on tj side
+    njheader.allocate_pixels();
 
     uint8_t *yuv_planes[3] = {njheader.comp[0].pixels.data(), njheader.comp[1].pixels.data(), njheader.comp[2].pixels.data()};
     int strides[3] = {njheader.comp[0].stride, njheader.comp[1].stride, njheader.comp[2].stride};
@@ -93,7 +93,6 @@ inline std::string ext(convertable_to_string &&path)
 
 int main(int argc, char **argv)
 {
-
     try
     {
         std::error_code error;
@@ -102,6 +101,7 @@ int main(int argc, char **argv)
         {
             throw std::runtime_error(error.message());
         }
+        std::vector<uint8_t> jpeg_vector(mmap.begin(),mmap.end());
         StopWatch njtime{}, tjtime{}, tjtime_fast{}, convert_time{};
         auto file_extenstion = ext(argv[1]);
         bool is_motion = file_extenstion == "mjpeg" ||  file_extenstion == "mjpg";
@@ -109,8 +109,8 @@ int main(int argc, char **argv)
             std::cout << "Motion JPEG detected" << std::endl;
             StopWatch motion_time{};
 
-            const uint8_t * pos = mmap.data();
-            size_t    size = mmap.size();
+            const uint8_t * pos = jpeg_vector.data();
+            size_t    size = jpeg_vector.size();
             int times = 0; // number of frames decoded
             std::ofstream fileyuv_file( std::string(argv[1]) + ".y4m", std::ios::binary | std::ios::out | std::ios::trunc);
             nanojpeg::nj_result frame{};
@@ -158,7 +158,7 @@ int main(int argc, char **argv)
             return 0;
         }
 
-        auto image = nanojpeg::decode(mmap.data(), mmap.size());//load memmap into nanojpeg image
+        auto image = nanojpeg::decode(jpeg_vector.data(), jpeg_vector.size());//load memmap into nanojpeg image
         if (image.yuv_format == 0) {
             std::cerr << "warining: not standard yuv format!" << std::endl;
         } else {
@@ -173,7 +173,7 @@ int main(int argc, char **argv)
         try
         {
             StopWatch dummy{};
-            jpeg_turbo_bench(dummy, mmap.data(), mmap.size(), true);
+            jpeg_turbo_bench(dummy, jpeg_vector.data(), jpeg_vector.size(), true);
         }
         catch (const std::exception &e)
         {
@@ -185,12 +185,12 @@ int main(int argc, char **argv)
         for (int i = 0; i < times; i++)
         {
 
-            (void)nanojpeg_bench(njtime, mmap.data(), mmap.size());
+            (void)nanojpeg_bench(njtime, jpeg_vector.data(), jpeg_vector.size());
 
             if (turbo_ok)
             {
-                (void)jpeg_turbo_bench(tjtime, mmap.data(), mmap.size(), false);
-                (void)jpeg_turbo_bench(tjtime_fast, mmap.data(), mmap.size(), true);
+                (void)jpeg_turbo_bench(tjtime, jpeg_vector.data(), jpeg_vector.size(), false);
+                (void)jpeg_turbo_bench(tjtime_fast, jpeg_vector.data(), jpeg_vector.size(), true);
             }
             if (i % 100 == 0)
                 std::cout << "." << std::flush;

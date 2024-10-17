@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.6) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 3.7) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -32,8 +32,8 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
+#include "idct_avx.hpp"
 #include "profiling.hpp"
-
 namespace nanojpeg
 {
 typedef enum _nj_result {
@@ -101,7 +101,6 @@ inline thread_local nj_result_t nj_error{NJ_OK};
 
     constexpr inline uint8_t njClip(int x)
     {
-        // return (x < 0) ? 0 : ((x > 0xFF) ? 0xFF : (uint8_t)x);
         return std::clamp(x, 0, 0xFF);
     }
 
@@ -109,284 +108,6 @@ inline thread_local nj_result_t nj_error{NJ_OK};
     {
         return (pos[0] << 8) | pos[1];
     }
-
-
-template <typename Type, int SimdSize>
-union alignas(32) SimdX{
-    Type data[SimdSize]{};
-    static constexpr auto simd_size = SimdSize;
-    using simd_type = Type;
-
-    constexpr inline auto operator-() const {
-        SimdX res;
-        for (int i = 0; i < SimdSize; ++i)
-            res[i] = -data[i];
-        return res;
-    }
-
-    constexpr inline auto& operator /= (Type v) {
-        for (int i = 0; i < SimdSize; ++i)
-            data[i] /= v;
-        return *this;
-    }
-
-    constexpr inline auto operator / (Type v) const {
-        SimdX res = *this;
-        res /= v;
-        return res;
-    }
-
-    constexpr inline auto& operator *= (Type v) {
-        for (int i = 0; i < SimdSize; ++i)
-            data[i] *= v;
-        return *this;
-    }
-
-    constexpr inline auto operator * (Type v) const {
-        SimdX res = *this;
-        res *= v;
-        return res;
-    }
-
-    constexpr inline auto& operator *= (SimdX v) {
-        for (int i = 0; i < SimdSize; ++i)
-            data[i] *= v[i];
-        return *this;
-    }
-
-    constexpr inline auto operator * (SimdX v) const {
-        SimdX res = *this;
-        res *= v;
-        return res;
-    }
-
-    constexpr inline auto& operator += (SimdX v) {
-        for (int i = 0; i < SimdSize; ++i)
-            data[i] += v[i];
-        return *this;
-    }
-
-    constexpr auto operator[](int i) const {
-        return data[i];
-    }
-
-    constexpr auto& operator[](int i) {
-        return data[i];
-    }
-
-    constexpr inline auto operator + (SimdX v) const {
-        auto res = *this;
-        res += v;
-        return res;
-    }
-
-    constexpr inline auto& operator -= (SimdX v) {
-        for (int i = 0; i < SimdSize; ++i)
-            data[i] -= v[i];
-        return *this;
-    }
-
-    constexpr inline auto operator - (SimdX v) const {
-        auto res = *this;
-        res -= v;
-        return res;
-    }
-
-    constexpr inline auto& operator += (Type v) {
-        for (int i = 0; i < SimdSize; ++i)
-            data[i] += v;
-        return *this;
-    }
-
-    constexpr inline auto operator + (Type v) const {
-        auto res = *this;
-        res += v;
-        return res;
-    }
-
-    constexpr inline auto& operator -= (Type v) {
-        return operator+=(-v);
-    }
-
-    constexpr inline auto operator - (Type v) const {
-        return operator+(-v);
-    }
-
-    constexpr friend inline SimdX operator * (Type v, const SimdX& rhs) {
-            return rhs * v;
-    }
-
-
-    constexpr friend inline SimdX operator + (Type v, const SimdX& rhs) {
-            return rhs + v;
-    }
-
-    constexpr inline auto& operator << (int v) {
-        if (v > 0) {
-            *this *= Type(1 << v);
-        }
-        return *this;
-    }
-
-    constexpr inline auto& operator >> (int v) {
-        if (v > 0) {
-            *this /= Type(1 << v);
-        }
-        return *this;
-    }
-
-    constexpr inline auto operator << (Type v) const {
-        SimdX res = *this;
-        res <<= v;
-        return res;
-    }
-    constexpr inline auto operator >> (Type v) const {
-        SimdX res = *this;
-        res >>= v;
-        return res;
-    }
-    constexpr inline int size() {
-        return SimdSize;
-    }
-    inline void load(const Type * src, int skip)
-    {
-        #pragma omp simd
-        for (int i = 0; i < SimdSize; ++i)
-        {
-            data[i] = src[i*skip];
-        }
-    }
-    inline void store(Type * store)
-    {
-        #pragma omp simd
-        for (int i = 0; i < SimdSize; ++i)
-        {
-            store[i] = data[i];
-        }
-
-    }
-};
-
-using float8 = SimdX<float,8>;
-
-inline void idct8(float8 * v, unsigned char* out, int stride)
-{
-    /* Even part */
-
-    float8 tmp10 = v[0] + v[4]; /* phase 3 */
-    float8 tmp11 = v[0] - v[4];
-
-    float8 tmp13 = v[2] + v[6];                                /* phases 5-3 */
-    float8 tmp12 = (v[2] - v[6]) * 1.414213562f - tmp13; /* 2*c4 */
-
-    float8 tmp0 = tmp10 + tmp13; /* phase 2 */
-    float8 tmp3 = tmp10 - tmp13;
-    float8 tmp1 = tmp11 + tmp12;
-    float8 tmp2 = tmp11 - tmp12;
-
-    /* Odd part */
-
-    float8 z13 = v[5] + v[3]; /* phase 6 */
-    float8 z10 = v[5] - v[3];
-    float8 z11 = v[1] + v[7];
-    float8 z12 = v[1] - v[7];
-
-    float8 tmp7 = z11 + z13;                         /* phase 5 */
-    tmp11 = (z11 - z13) * 1.414213562f; /* 2*c4 */
-
-    float8 z5 = (z10 + z12) * 1.847759065f; /* 2*c2 */
-    tmp10 = z5 - z12 * 1.082392200f;       /* 2*(c2-c6) */
-    tmp12 = z5 - z10 * 2.613125930f;       /* 2*(c2+c6) */
-
-    float8 tmp6 = tmp12 - tmp7; /* phase 2 */
-    float8 tmp5 = tmp11 - tmp6;
-    float8 tmp4 = tmp10 - tmp5;
-    if ( out ) {
-
-        auto v = {
-                    tmp0 + tmp7 + 128.5f,
-                    tmp1 + tmp6 + 128.5f,
-                    tmp2 + tmp5 + 128.5f,
-                    tmp3 + tmp4 + 128.5f,
-                    tmp3 - tmp4 + 128.5f,
-                    tmp2 - tmp5 + 128.5f,
-                    tmp1 - tmp6 + 128.5f,
-                    tmp0 - tmp7 + 128.5f,
-                    };
-
-
-        #pragma omp simd
-        for (int i=0; i<8; ++i)
-        {
-            for (int j=0; j < 8; ++j)
-            {
-                out[j] = njClip( std::cbegin(v)[i][j]);
-            }
-            out += stride;
-        }
-    } else {
-        v[0] = tmp0 + tmp7;
-        v[1] = tmp1 + tmp6;
-        v[2] = tmp2 + tmp5;
-        v[3] = tmp3 + tmp4;
-        v[4] = tmp3 - tmp4;
-        v[5] = tmp2 - tmp5;
-        v[6] = tmp1 - tmp6;
-        v[7] = tmp0 - tmp7;
-    }
-}
-
-#ifdef __AVX__
-#include <x86intrin.h>
-#endif
-inline void transpose(float8 *a8)
-{
-#ifdef __AVX__
-__m256* m8 = reinterpret_cast<__m256*>(a8);
-__m256 &row0=m8[0];__m256 &row1=m8[1];__m256 &row2=m8[2];__m256 &row3=m8[3];__m256 &row4=m8[4];__m256 &row5=m8[5];__m256 &row6=m8[6];__m256 &row7=m8[7];
-__m256 __t0, __t1, __t2, __t3, __t4, __t5, __t6, __t7;
-__m256 __tt0, __tt1, __tt2, __tt3, __tt4, __tt5, __tt6, __tt7;
-__t0 = _mm256_unpacklo_ps(row0, row1);
-__t1 = _mm256_unpackhi_ps(row0, row1);
-__t2 = _mm256_unpacklo_ps(row2, row3);
-__t3 = _mm256_unpackhi_ps(row2, row3);
-__t4 = _mm256_unpacklo_ps(row4, row5);
-__t5 = _mm256_unpackhi_ps(row4, row5);
-__t6 = _mm256_unpacklo_ps(row6, row7);
-__t7 = _mm256_unpackhi_ps(row6, row7);
-__tt0 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(1,0,1,0));
-__tt1 = _mm256_shuffle_ps(__t0,__t2,_MM_SHUFFLE(3,2,3,2));
-__tt2 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(1,0,1,0));
-__tt3 = _mm256_shuffle_ps(__t1,__t3,_MM_SHUFFLE(3,2,3,2));
-__tt4 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(1,0,1,0));
-__tt5 = _mm256_shuffle_ps(__t4,__t6,_MM_SHUFFLE(3,2,3,2));
-__tt6 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(1,0,1,0));
-__tt7 = _mm256_shuffle_ps(__t5,__t7,_MM_SHUFFLE(3,2,3,2));
-row0 = _mm256_permute2f128_ps(__tt0, __tt4, 0x20);
-row1 = _mm256_permute2f128_ps(__tt1, __tt5, 0x20);
-row2 = _mm256_permute2f128_ps(__tt2, __tt6, 0x20);
-row3 = _mm256_permute2f128_ps(__tt3, __tt7, 0x20);
-row4 = _mm256_permute2f128_ps(__tt0, __tt4, 0x31);
-row5 = _mm256_permute2f128_ps(__tt1, __tt5, 0x31);
-row6 = _mm256_permute2f128_ps(__tt2, __tt6, 0x31);
-row7 = _mm256_permute2f128_ps(__tt3, __tt7, 0x31);
-
-#else
-    for(int i=0; i<8-1; i++)
-        for(int j=i+1; j<8; j++)
-        {
-           std::swap(a8[i][j],a8[j][i]);
-        }
-#endif
-}
-
-
-inline void idct8x8(float8 * block, unsigned char*out, int stride)
-{
-    idct8(block,nullptr,0);
-    transpose(block);
-    idct8(block,out, stride);
-}
 
     struct BitstreamContext
     {
@@ -396,7 +117,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         const uint8_t *ptr = nullptr; // pointer to the position inside a buffer
         int bits_valid = 0;           // number of bits left in bits field
 
-        constexpr BitstreamContext(const uint8_t *buffer, int64_t buffer_size)
+        BitstreamContext(const uint8_t *buffer, int64_t buffer_size)
         {
             buffer_end = buffer + buffer_size;
             ptr = buffer;
@@ -404,7 +125,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             bits = 0;
         }
 
-        constexpr inline uint8_t readjbyte()
+        inline uint8_t readjbyte()
         {
             if (ptr < buffer_end)
             {
@@ -421,7 +142,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             return 0;
         }
 
-        constexpr void refill()
+        void refill()
         {
             while (bits_valid <= 56)
             {
@@ -430,13 +151,13 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
         }
 
-        constexpr inline void skip(int n)
+        inline void skip(int n)
         {
             bits <<= n;
             bits_valid -= n;
         }
 
-        constexpr inline uint32_t peek()
+        inline uint32_t peek()
         {
             if (bits_valid<32)
                 refill();
@@ -603,8 +324,8 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         }
     };
 
-    using HuffCodeDC = HuffCode<6>;
-    using HuffCodeAC = HuffCode<10>;
+    using HuffCodeDC = HuffCode<4>;
+    using HuffCodeAC = HuffCode<8>;
 
     struct nj_component_t
     {
@@ -622,27 +343,11 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
 
     };
 
-        inline void njDecodeBlock(profiling::StopWatch &profile, BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,const float *qtab, uint8_t * out, int stride)
+        inline void njDecodeBlock(profiling::StopWatch &profile, BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
+        const float *qtab,
+        uint8_t * out, int stride)
         {
-            alignas(32) union Block {
-                float data[64]{};
-                float8 rows[8];
-                constexpr float operator [](int i) const {
-                    return data[i];
-                }
-                constexpr float& operator [](int i) {
-                    return data[i];
-                }
-                constexpr operator float*(){
-                    return &data[0];
-                }
-                constexpr operator float8*(){
-                    return &rows[0];
-                }
-                constexpr Block() {}
-
-            } block;
-
+            alignas(32) float block[64]{};
             // DC coef
             dcpred += std::get<0>( dc.njGetVLC(bs) );
             //transponsed!!!
@@ -657,7 +362,6 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             46, 39, 47, 54, 61, 62, 55, 63};
 
             block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
-
             int coef{0};
 
             do
@@ -672,7 +376,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 {
                     njThrow(NJ_SYNTAX_ERROR);
                 }
-                block[ZZ[coef]] = value * qtab[coef]; // DCT coefficients scaling and quantization
+                    block[ZZ[coef]] = value * qtab[coef];
             } while (coef < 63);
 
             if (nj_error != NJ_OK)
@@ -684,8 +388,7 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
             else
             { // only DC component
-                auto value = njClip(block[0] + 128.5f);
-
+                auto value = njClip( block[0] + 128.5f );
                 for (int i = 0; i < 8; ++i)
                 {
                     std::fill(out, out + 8, value);
@@ -856,7 +559,9 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
             }
             if (length < (ncomp * 3))
                 njThrow(NJ_SYNTAX_ERROR);
+            allocations_penalty.start();
             comp.resize(ncomp);
+            allocations_penalty.stop();
             for (auto &c : comp)
             {
                 c.cid = pos[0];
@@ -898,7 +603,9 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                 c.size = c.stride * mbheight * c.ssy << 3;
                 if constexpr (allocate_memory)
                 {
+                    allocations_penalty.start();
                     c.pixels.resize(c.size);
+                    allocations_penalty.stop();
                 }
 
                 int srcw = c.width;
@@ -920,8 +627,10 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
         inline void DecodeDHT(void)
         {
             DecodeLength();
+            allocations_penalty.start();
             huff_DC.resize(2);
             huff_AC.resize(2);
+            allocations_penalty.stop();
             while (length >= 17)
             {
                 int i = pos[0];
@@ -969,7 +678,9 @@ inline void idct8x8(float8 * block, unsigned char*out, int stride)
                  118, 91, 49, 46, 81, 101, 101, 81,
                  46, 42, 69, 79, 69, 42, 35, 54,
                  54, 35, 28, 37, 28, 19, 19, 10};
+            allocations_penalty.start();
             qtab.resize(4);
+            allocations_penalty.stop();
             while (length >= 65)
             {
                 int i = pos[0];
