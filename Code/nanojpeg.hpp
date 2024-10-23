@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 3.7) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 4.0) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -32,7 +32,7 @@
 #include <cstdint>
 #include <cassert>
 #include <algorithm>
-#include "idct_avx.hpp"
+#include <immintrin.h>
 #include "profiling.hpp"
 namespace nanojpeg
 {
@@ -97,7 +97,8 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         #endif
     }
 
-
+    constexpr int fix_pass = 7;
+    constexpr int fix_qtab = (10-fix_pass);
 
     constexpr inline uint8_t njClip(int x)
     {
@@ -109,14 +110,180 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         return (pos[0] << 8) | pos[1];
     }
 
+template <unsigned i=0, int fract>
+inline __m128i _mm_mul_epi16_const(__m128i t0) {
+    __m128i t1 = _mm_mulhrs_epi16(t0, _mm_set1_epi16(fract));
+    if constexpr (i != 0) {
+
+        if constexpr (i == 2) {
+            t0 = _mm_adds_epi16( t0, t0 );
+        }
+        if constexpr (  fract < 0) {
+            t1 = _mm_subs_epi16( t1, t0 );
+
+        } else {
+            t1 = _mm_adds_epi16( t1, t0 );
+        }
+    }
+    return t1;
+}
+
+static void idct8x8(const int16_t *v, uint8_t * out, int stride)
+{
+    __m128i row0,row1,row2,row3,row4,row5,row6,row7;
+    __m128i tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7;
+    __m128i tmp10,tmp11,tmp12,tmp13;
+    __m128i z5,z10,z11,z12,z13;
+
+    row0 = _mm_load_si128( (const __m128i*)(v) );
+    row1 = _mm_load_si128( (const __m128i*)(v+8));
+    row2 = _mm_load_si128( (const __m128i*)(v+16));
+    row3 = _mm_load_si128( (const __m128i*)(v+24));
+    row4 = _mm_load_si128( (const __m128i*)(v+32));
+    row5 = _mm_load_si128( (const __m128i*)(v+40));
+    row6 = _mm_load_si128( (const __m128i*)(v+48));
+    row7 = _mm_load_si128( (const __m128i*)(v+56));
+    /* Even part */
+    tmp10 = _mm_adds_epi16(row0, row4); /* phase 3 */
+    tmp11 = _mm_subs_epi16(row0, row4);
+
+    tmp13 = _mm_adds_epi16(row2, row6); /* phases 5-3 */
+    tmp12 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>(_mm_subs_epi16(row2, row6));
+    tmp12 = _mm_subs_epi16(tmp12,tmp13);
+
+    tmp0 = _mm_adds_epi16(tmp10, tmp13); /* phase 2 */
+    tmp3 = _mm_subs_epi16(tmp10, tmp13);
+    tmp1 = _mm_adds_epi16(tmp11, tmp12);
+    tmp2 = _mm_subs_epi16(tmp11, tmp12);
+
+    /* Odd part */
+
+    z13 = _mm_adds_epi16(row5, row3); /* phase 6 */
+    z10 = _mm_subs_epi16(row5, row3);
+    z11 = _mm_adds_epi16(row1, row7);
+    z12 = _mm_subs_epi16(row1, row7);
+
+    tmp7 = _mm_adds_epi16(z11, z13);  /* phase 5 */
+
+    tmp11 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>( _mm_subs_epi16(z11,z13) );
+
+    z5 = _mm_mul_epi16_const<1,int(0.847759065*0x8000)>( _mm_adds_epi16(z10,z12) );
+
+    tmp10 = _mm_subs_epi16(z5, _mm_mul_epi16_const<1,int(0.082392200*0x8000)>(z12) );
+    tmp12 = _mm_subs_epi16(z5, _mm_mul_epi16_const<2,int(0.613125930*0x8000)>(z10) );
+
+    tmp6 = _mm_subs_epi16(tmp12, tmp7); /* phase 2 */
+    tmp5 = _mm_subs_epi16(tmp11, tmp6);
+    tmp4 = _mm_subs_epi16(tmp10, tmp5);
+
+    row0 = _mm_adds_epi16(tmp0,tmp7);
+    row1 = _mm_adds_epi16(tmp1,tmp6);
+    row2 = _mm_adds_epi16(tmp2,tmp5);
+    row3 = _mm_adds_epi16(tmp3,tmp4);
+    row4 = _mm_subs_epi16(tmp3,tmp4);
+    row5 = _mm_subs_epi16(tmp2,tmp5);
+    row6 = _mm_subs_epi16(tmp1,tmp6);
+    row7 = _mm_subs_epi16(tmp0,tmp7);
+    /* transpose here row[0-7] */
+
+    // Step 1: Unpack and interleave adjacent rows
+    __m128i t0 = _mm_unpacklo_epi16(row0, row1); // t0: [00, 10, 01, 11]
+    __m128i t1 = _mm_unpackhi_epi16(row0, row1); // t1: [02, 12, 03, 13]
+    __m128i t2 = _mm_unpacklo_epi16(row2, row3); // t2: [20, 30, 21, 31]
+    __m128i t3 = _mm_unpackhi_epi16(row2, row3); // t3: [22, 32, 23, 33]
+    __m128i t4 = _mm_unpacklo_epi16(row4, row5); // t4: [40, 50, 41, 51]
+    __m128i t5 = _mm_unpackhi_epi16(row4, row5); // t5: [42, 52, 43, 53]
+    __m128i t6 = _mm_unpacklo_epi16(row6, row7); // t6: [60, 70, 61, 71]
+    __m128i t7 = _mm_unpackhi_epi16(row6, row7); // t7: [62, 72, 63, 73]
+
+    // Step 2: Continue unpacking into 32-bit segments
+    __m128i u0 = _mm_unpacklo_epi32(t0, t2); // u0: [00, 10, 20, 30]
+    __m128i u1 = _mm_unpackhi_epi32(t0, t2); // u1: [01, 11, 21, 31]
+    __m128i u2 = _mm_unpacklo_epi32(t1, t3); // u2: [02, 12, 22, 32]
+    __m128i u3 = _mm_unpackhi_epi32(t1, t3); // u3: [03, 13, 23, 33]
+    __m128i u4 = _mm_unpacklo_epi32(t4, t6); // u4: [40, 50, 60, 70]
+    __m128i u5 = _mm_unpackhi_epi32(t4, t6); // u5: [41, 51, 61, 71]
+    __m128i u6 = _mm_unpacklo_epi32(t5, t7); // u6: [42, 52, 62, 72]
+    __m128i u7 = _mm_unpackhi_epi32(t5, t7); // u7: [43, 53, 63, 73]
+
+    // Step 3: Unpack into 64-bit segments
+    row0 = _mm_unpacklo_epi64(u0, u4); // row[0]: [00, 10, 20, 30, 40, 50, 60, 70]
+    row1 = _mm_unpackhi_epi64(u0, u4); // row[1]: [01, 11, 21, 31, 41, 51, 61, 71]
+    row2 = _mm_unpacklo_epi64(u1, u5); // row[2]: [02, 12, 22, 32, 42, 52, 62, 72]
+    row3 = _mm_unpackhi_epi64(u1, u5); // row[3]: [03, 13, 23, 33, 43, 53, 63, 73]
+    row4 = _mm_unpacklo_epi64(u2, u6); // row[4]: [04, 14, 24, 34, 44, 54, 64, 74]
+    row5 = _mm_unpackhi_epi64(u2, u6); // row[5]: [05, 15, 25, 35, 45, 55, 65, 75]
+    row6 = _mm_unpacklo_epi64(u3, u7); // row[6]: [06, 16, 26, 36, 46, 56, 66, 76]
+    row7 = _mm_unpackhi_epi64(u3, u7); // row[7]: [07, 17, 27, 37, 47, 57, 67, 77]
+
+    /* Even part */
+    tmp10 = _mm_adds_epi16(row0, row4); /* phase 3 */
+    tmp11 = _mm_subs_epi16(row0, row4);
+
+    tmp13 = _mm_adds_epi16(row2, row6); /* phases 5-3 */
+    tmp12 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>(_mm_subs_epi16(row2, row6));
+    tmp12 = _mm_subs_epi16(tmp12,tmp13);
+
+    tmp0 = _mm_adds_epi16(tmp10, tmp13); /* phase 2 */
+    tmp3 = _mm_subs_epi16(tmp10, tmp13);
+    tmp1 = _mm_adds_epi16(tmp11, tmp12);
+    tmp2 = _mm_subs_epi16(tmp11, tmp12);
+
+    /* Odd part */
+
+    z13 = _mm_adds_epi16(row5, row3); /* phase 6 */
+    z10 = _mm_subs_epi16(row5, row3);
+    z11 = _mm_adds_epi16(row1, row7);
+    z12 = _mm_subs_epi16(row1, row7);
+
+    tmp7 = _mm_adds_epi16(z11, z13);  /* phase 5 */
+
+    tmp11 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>( _mm_subs_epi16(z11,z13) );
+
+    z5 = _mm_mul_epi16_const<1,int(0.847759065*0x8000)>( _mm_adds_epi16(z10,z12) );
+
+    tmp10 = _mm_subs_epi16(z5, _mm_mul_epi16_const<1,int(0.082392200*0x8000)>(z12) );
+    tmp12 = _mm_subs_epi16(z5, _mm_mul_epi16_const<2,int(0.613125930*0x8000)>(z10) );
+
+    tmp6 = _mm_subs_epi16(tmp12, tmp7); /* phase 2 */
+    tmp5 = _mm_subs_epi16(tmp11, tmp6);
+    tmp4 = _mm_subs_epi16(tmp10, tmp5);
+
+    row0 = _mm_adds_epi16(tmp0,tmp7);
+    row1 = _mm_adds_epi16(tmp1,tmp6);
+    row2 = _mm_adds_epi16(tmp2,tmp5);
+    row3 = _mm_adds_epi16(tmp3,tmp4);
+    row4 = _mm_subs_epi16(tmp3,tmp4);
+    row5 = _mm_subs_epi16(tmp2,tmp5);
+    row6 = _mm_subs_epi16(tmp1,tmp6);
+    row7 = _mm_subs_epi16(tmp0,tmp7);
+
+    alignas(16) uint8_t m16[8*2];
+
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row0,row0) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row1,row1) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row2,row2) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row3,row3) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row4,row4) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row5,row5) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row6,row6) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row7,row7) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80;
+
+
+}
+
+
     struct BitstreamContext
     {
 
-        uint64_t bits = 0; // stores bits read from the buffer
-        const uint8_t *buffer_end = nullptr;
-        const uint8_t *ptr = nullptr; // pointer to the position inside a buffer
+        uint64_t bits; // stores bits read from the buffer
+        const uint8_t *buffer_end;
+        const uint8_t *ptr; // pointer to the position inside a buffer
         int bits_valid = 0;           // number of bits left in bits field
 
+        BitstreamContext() = delete;
+        BitstreamContext& operator=(const BitstreamContext&) = default;
         BitstreamContext(const uint8_t *buffer, int64_t buffer_size)
         {
             buffer_end = buffer + buffer_size;
@@ -344,10 +511,10 @@ inline thread_local nj_result_t nj_error{NJ_OK};
     };
 
         inline void njDecodeBlock(profiling::StopWatch &profile, BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
-        const float *qtab,
+        const int *qtab,
         uint8_t * out, int stride)
         {
-            alignas(32) float block[64]{};
+            alignas(16) int16_t block[64]{};
             // DC coef
             dcpred += std::get<0>( dc.njGetVLC(bs) );
             //transponsed!!!
@@ -361,7 +528,7 @@ inline thread_local nj_result_t nj_error{NJ_OK};
             23, 31, 38, 45, 52, 59, 60, 53,
             46, 39, 47, 54, 61, 62, 55, 63};
 
-            block[0] = (dcpred)*qtab[0]; // DC component scaling and quantization
+            block[0] = std::clamp( ((dcpred)*qtab[0]) >> fix_qtab, -32768,32767); // DC component scaling and quantization
             int coef{0};
 
             do
@@ -376,7 +543,8 @@ inline thread_local nj_result_t nj_error{NJ_OK};
                 {
                     njThrow(NJ_SYNTAX_ERROR);
                 }
-                    block[ZZ[coef]] = value * qtab[coef];
+                block[ZZ[coef]] = std::clamp( (value * qtab[coef]) >> fix_qtab, -32768, 32767 );
+
             } while (coef < 63);
 
             if (nj_error != NJ_OK)
@@ -384,11 +552,13 @@ inline thread_local nj_result_t nj_error{NJ_OK};
 
             if (coef)
             {
-                idct8x8(block, out , stride);
+                idct8x8(block,out,stride);
+
             }
             else
             { // only DC component
-                auto value = njClip( block[0] + 128.5f );
+
+                uint8_t value =  njClip((block[0] + int(128.5 * (1 << fix_pass)) ) >> fix_pass);
                 for (int i = 0; i < 8; ++i)
                 {
                     std::fill(out, out + 8, value);
@@ -409,7 +579,7 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         profiling::StopWatch allocations_penalty{};
         std::vector<nj_component_t> comp{};
         //int qtused{}, qtavail{};
-        std::vector<std::array<float, 64>> qtab{};
+        std::vector<std::array<int, 64>> qtab{};
         int rstinterval{};
         std::vector<HuffCodeDC> huff_DC{};
         std::vector<HuffCodeAC> huff_AC{};
@@ -690,7 +860,7 @@ inline thread_local nj_result_t nj_error{NJ_OK};
                 auto p = pos + 1;
                 auto scale = AANDctScaleFactor;
                 for (auto &t : qtab.at(i))
-                    t = (/*Integral Promotion */ (*p++) * (*scale++)) * float(1. / 1024.); // scale aan quantization table
+                    t = (/*Integral Promotion */ (*p++) * (*scale++)); // scale aan quantization table
                 Skip(65);
             }
             if (length)
