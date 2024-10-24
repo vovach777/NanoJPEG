@@ -97,7 +97,7 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         #endif
     }
 
-    constexpr int fix_pass = 7;
+    constexpr int fix_pass = 4;
     constexpr int fix_qtab = (10-fix_pass);
 
     constexpr inline uint8_t njClip(int x)
@@ -258,18 +258,45 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
     row6 = _mm_subs_epi16(tmp1,tmp6);
     row7 = _mm_subs_epi16(tmp0,tmp7);
 
+
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row0,row0) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row1,row1) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row2,row2) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row3,row3) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row4,row4) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row5,row5) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row6,row6) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
+    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row7,row7) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80;
+
+    row0 = _mm_srai_epi16( row0, fix_pass);
+    row1 = _mm_srai_epi16( row1, fix_pass);
+    row2 = _mm_srai_epi16( row2, fix_pass);
+    row3 = _mm_srai_epi16( row3, fix_pass);
+    row4 = _mm_srai_epi16( row4, fix_pass);
+    row5 = _mm_srai_epi16( row5, fix_pass);
+    row6 = _mm_srai_epi16( row6, fix_pass);
+    row7 = _mm_srai_epi16( row7, fix_pass);
+    row0 = _mm_packs_epi16( row0, row1 );
+    row1 = _mm_set1_epi8(-128);
+    row2 = _mm_packs_epi16( row2, row3 );
+    row4 = _mm_packs_epi16( row4, row5 );
+    row6 = _mm_packs_epi16( row6, row7 );
+    row0 = _mm_xor_si128( row0, row1);
+    row2 = _mm_xor_si128( row2, row1);
+    row4 = _mm_xor_si128( row4, row1);
+    row6 = _mm_xor_si128( row6, row1);
+
     alignas(16) uint8_t m16[8*2];
 
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row0,row0) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row1,row1) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row2,row2) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row3,row3) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row4,row4) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row5,row5) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row6,row6) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row7,row7) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80;
-
+    _mm_stream_si128( (__m128i*) m16, row0);
+    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
+    _mm_stream_si128( (__m128i*) m16, row2);
+    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
+    _mm_stream_si128( (__m128i*) m16, row4);
+    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
+    _mm_stream_si128( (__m128i*) m16, row6);
+    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
 
 }
 
@@ -558,7 +585,7 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
             else
             { // only DC component
 
-                uint8_t value =  njClip((block[0] + int(128.5 * (1 << fix_pass)) ) >> fix_pass);
+                uint8_t value =  (std::clamp(block[0] >> fix_pass,-128, 127) ^ 0x80) & 0xff;
                 for (int i = 0; i < 8; ++i)
                 {
                     std::fill(out, out + 8, value);
