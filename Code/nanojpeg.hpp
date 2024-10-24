@@ -258,17 +258,6 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
     row6 = _mm_subs_epi16(tmp1,tmp6);
     row7 = _mm_subs_epi16(tmp0,tmp7);
 
-
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row0,row0) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row1,row1) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row2,row2) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row3,row3) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row4,row4) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row5,row5) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row6,row6) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80; out += stride;
-    // _mm_stream_si128( (__m128i*) m16,  _mm_adds_epi16(row7,row7) );  for (int i=0; i<8;++i) out[i] =  m16[i*2+1] ^ 0x80;
-
     row0 = _mm_srai_epi16( row0, fix_pass);
     row1 = _mm_srai_epi16( row1, fix_pass);
     row2 = _mm_srai_epi16( row2, fix_pass);

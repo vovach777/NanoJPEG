@@ -20,7 +20,7 @@ if(COMPILER_INFO MATCHES "Clang|GNU")
     endif()
 endif()
 if(COMPILER_INFO MATCHES "MSVC")
-    add_compile_options( -mssse3)
+    add_compile_options( -mssse3 -mavx)
     # if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # else()
     # endif()
@@ -44,3 +44,7 @@ message(STATUS "c++ opt_${CONFIG}:  [${CMAKE_CXX_FLAGS}] [${CMAKE_CXX_FLAGS_${CO
 message(STATUS "link opt_${CONFIG}:  [${CMAKE_EXE_LINKER_FLAGS_RELEASE}]")
 
 string(APPEND  CMAKE_EXE_LINKER_FLAGS_RELEASE "-v")
+
+find_package(benchmark CONFIG REQUIRED)
+add_executable(bench benchmark/app.cpp)
+target_link_libraries(bench PRIVATE benchmark::benchmark benchmark::benchmark_main)
