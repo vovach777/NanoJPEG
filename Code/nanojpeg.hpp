@@ -276,16 +276,14 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
     row4 = _mm_xor_si128( row4, row1);
     row6 = _mm_xor_si128( row6, row1);
 
-    alignas(16) uint8_t m16[8*2];
-
-    _mm_stream_si128( (__m128i*) m16, row0);
-    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
-    _mm_stream_si128( (__m128i*) m16, row2);
-    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
-    _mm_stream_si128( (__m128i*) m16, row4);
-    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
-    _mm_stream_si128( (__m128i*) m16, row6);
-    std::copy(m16,m16+8, out); out+=stride; std::copy(m16+8,m16+16, out); out+=stride;
+    *((long long *)out) =  _mm_extract_epi64(row0, 0); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row0, 1); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row2, 0); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row2, 1); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row4, 0); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row4, 1); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row6, 0); out += stride;
+    *((long long *)out) =  _mm_extract_epi64(row6, 1); out += stride;
 
 }
 
