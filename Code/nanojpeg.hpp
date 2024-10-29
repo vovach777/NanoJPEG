@@ -128,164 +128,164 @@ inline __m128i _mm_mul_epi16_const(__m128i t0) {
     return t1;
 }
 
-static void idct8x8(const int16_t *v, uint8_t * out, int stride)
-{
-    __m128i row0,row1,row2,row3,row4,row5,row6,row7;
-    __m128i tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7;
-    __m128i tmp10,tmp11,tmp12,tmp13;
-    __m128i z5,z10,z11,z12,z13;
+extern "C" void idct8x8_epi16(const int16_t *v, uint8_t * out, int stride);
+// {
+//     __m128i row0,row1,row2,row3,row4,row5,row6,row7;
+//     __m128i tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7;
+//     __m128i tmp10,tmp11,tmp12,tmp13;
+//     __m128i z5,z10,z11,z12,z13;
 
-    row0 = _mm_load_si128( (const __m128i*)(v) );
-    row1 = _mm_load_si128( (const __m128i*)(v+8));
-    row2 = _mm_load_si128( (const __m128i*)(v+16));
-    row3 = _mm_load_si128( (const __m128i*)(v+24));
-    row4 = _mm_load_si128( (const __m128i*)(v+32));
-    row5 = _mm_load_si128( (const __m128i*)(v+40));
-    row6 = _mm_load_si128( (const __m128i*)(v+48));
-    row7 = _mm_load_si128( (const __m128i*)(v+56));
-    /* Even part */
-    tmp10 = _mm_adds_epi16(row0, row4); /* phase 3 */
-    tmp11 = _mm_subs_epi16(row0, row4);
+//     row0 = _mm_load_si128( (const __m128i*)(v) );
+//     row1 = _mm_load_si128( (const __m128i*)(v+8));
+//     row2 = _mm_load_si128( (const __m128i*)(v+16));
+//     row3 = _mm_load_si128( (const __m128i*)(v+24));
+//     row4 = _mm_load_si128( (const __m128i*)(v+32));
+//     row5 = _mm_load_si128( (const __m128i*)(v+40));
+//     row6 = _mm_load_si128( (const __m128i*)(v+48));
+//     row7 = _mm_load_si128( (const __m128i*)(v+56));
+//     /* Even part */
+//     tmp10 = _mm_adds_epi16(row0, row4); /* phase 3 */
+//     tmp11 = _mm_subs_epi16(row0, row4);
 
-    tmp13 = _mm_adds_epi16(row2, row6); /* phases 5-3 */
-    tmp12 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>(_mm_subs_epi16(row2, row6));
-    tmp12 = _mm_subs_epi16(tmp12,tmp13);
+//     tmp13 = _mm_adds_epi16(row2, row6); /* phases 5-3 */
+//     tmp12 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>(_mm_subs_epi16(row2, row6));
+//     tmp12 = _mm_subs_epi16(tmp12,tmp13);
 
-    tmp0 = _mm_adds_epi16(tmp10, tmp13); /* phase 2 */
-    tmp3 = _mm_subs_epi16(tmp10, tmp13);
-    tmp1 = _mm_adds_epi16(tmp11, tmp12);
-    tmp2 = _mm_subs_epi16(tmp11, tmp12);
+//     tmp0 = _mm_adds_epi16(tmp10, tmp13); /* phase 2 */
+//     tmp3 = _mm_subs_epi16(tmp10, tmp13);
+//     tmp1 = _mm_adds_epi16(tmp11, tmp12);
+//     tmp2 = _mm_subs_epi16(tmp11, tmp12);
 
-    /* Odd part */
+//     /* Odd part */
 
-    z13 = _mm_adds_epi16(row5, row3); /* phase 6 */
-    z10 = _mm_subs_epi16(row5, row3);
-    z11 = _mm_adds_epi16(row1, row7);
-    z12 = _mm_subs_epi16(row1, row7);
+//     z13 = _mm_adds_epi16(row5, row3); /* phase 6 */
+//     z10 = _mm_subs_epi16(row5, row3);
+//     z11 = _mm_adds_epi16(row1, row7);
+//     z12 = _mm_subs_epi16(row1, row7);
 
-    tmp7 = _mm_adds_epi16(z11, z13);  /* phase 5 */
+//     tmp7 = _mm_adds_epi16(z11, z13);  /* phase 5 */
 
-    tmp11 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>( _mm_subs_epi16(z11,z13) );
+//     tmp11 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>( _mm_subs_epi16(z11,z13) );
 
-    z5 = _mm_mul_epi16_const<1,int(0.847759065*0x8000)>( _mm_adds_epi16(z10,z12) );
+//     z5 = _mm_mul_epi16_const<1,int(0.847759065*0x8000)>( _mm_adds_epi16(z10,z12) );
 
-    tmp10 = _mm_subs_epi16(z5, _mm_mul_epi16_const<1,int(0.082392200*0x8000)>(z12) );
-    tmp12 = _mm_subs_epi16(z5, _mm_mul_epi16_const<2,int(0.613125930*0x8000)>(z10) );
+//     tmp10 = _mm_subs_epi16(z5, _mm_mul_epi16_const<1,int(0.082392200*0x8000)>(z12) );
+//     tmp12 = _mm_subs_epi16(z5, _mm_mul_epi16_const<2,int(0.613125930*0x8000)>(z10) );
 
-    tmp6 = _mm_subs_epi16(tmp12, tmp7); /* phase 2 */
-    tmp5 = _mm_subs_epi16(tmp11, tmp6);
-    tmp4 = _mm_subs_epi16(tmp10, tmp5);
+//     tmp6 = _mm_subs_epi16(tmp12, tmp7); /* phase 2 */
+//     tmp5 = _mm_subs_epi16(tmp11, tmp6);
+//     tmp4 = _mm_subs_epi16(tmp10, tmp5);
 
-    row0 = _mm_adds_epi16(tmp0,tmp7);
-    row1 = _mm_adds_epi16(tmp1,tmp6);
-    row2 = _mm_adds_epi16(tmp2,tmp5);
-    row3 = _mm_adds_epi16(tmp3,tmp4);
-    row4 = _mm_subs_epi16(tmp3,tmp4);
-    row5 = _mm_subs_epi16(tmp2,tmp5);
-    row6 = _mm_subs_epi16(tmp1,tmp6);
-    row7 = _mm_subs_epi16(tmp0,tmp7);
-    /* transpose here row[0-7] */
+//     row0 = _mm_adds_epi16(tmp0,tmp7);
+//     row1 = _mm_adds_epi16(tmp1,tmp6);
+//     row2 = _mm_adds_epi16(tmp2,tmp5);
+//     row3 = _mm_adds_epi16(tmp3,tmp4);
+//     row4 = _mm_subs_epi16(tmp3,tmp4);
+//     row5 = _mm_subs_epi16(tmp2,tmp5);
+//     row6 = _mm_subs_epi16(tmp1,tmp6);
+//     row7 = _mm_subs_epi16(tmp0,tmp7);
+//     /* transpose here row[0-7] */
 
-    // Step 1: Unpack and interleave adjacent rows
-    __m128i t0 = _mm_unpacklo_epi16(row0, row1); // t0: [00, 10, 01, 11]
-    __m128i t1 = _mm_unpackhi_epi16(row0, row1); // t1: [02, 12, 03, 13]
-    __m128i t2 = _mm_unpacklo_epi16(row2, row3); // t2: [20, 30, 21, 31]
-    __m128i t3 = _mm_unpackhi_epi16(row2, row3); // t3: [22, 32, 23, 33]
-    __m128i t4 = _mm_unpacklo_epi16(row4, row5); // t4: [40, 50, 41, 51]
-    __m128i t5 = _mm_unpackhi_epi16(row4, row5); // t5: [42, 52, 43, 53]
-    __m128i t6 = _mm_unpacklo_epi16(row6, row7); // t6: [60, 70, 61, 71]
-    __m128i t7 = _mm_unpackhi_epi16(row6, row7); // t7: [62, 72, 63, 73]
+//     // Step 1: Unpack and interleave adjacent rows
+//     __m128i t0 = _mm_unpacklo_epi16(row0, row1); // t0: [00, 10, 01, 11]
+//     __m128i t1 = _mm_unpackhi_epi16(row0, row1); // t1: [02, 12, 03, 13]
+//     __m128i t2 = _mm_unpacklo_epi16(row2, row3); // t2: [20, 30, 21, 31]
+//     __m128i t3 = _mm_unpackhi_epi16(row2, row3); // t3: [22, 32, 23, 33]
+//     __m128i t4 = _mm_unpacklo_epi16(row4, row5); // t4: [40, 50, 41, 51]
+//     __m128i t5 = _mm_unpackhi_epi16(row4, row5); // t5: [42, 52, 43, 53]
+//     __m128i t6 = _mm_unpacklo_epi16(row6, row7); // t6: [60, 70, 61, 71]
+//     __m128i t7 = _mm_unpackhi_epi16(row6, row7); // t7: [62, 72, 63, 73]
 
-    // Step 2: Continue unpacking into 32-bit segments
-    __m128i u0 = _mm_unpacklo_epi32(t0, t2); // u0: [00, 10, 20, 30]
-    __m128i u1 = _mm_unpackhi_epi32(t0, t2); // u1: [01, 11, 21, 31]
-    __m128i u2 = _mm_unpacklo_epi32(t1, t3); // u2: [02, 12, 22, 32]
-    __m128i u3 = _mm_unpackhi_epi32(t1, t3); // u3: [03, 13, 23, 33]
-    __m128i u4 = _mm_unpacklo_epi32(t4, t6); // u4: [40, 50, 60, 70]
-    __m128i u5 = _mm_unpackhi_epi32(t4, t6); // u5: [41, 51, 61, 71]
-    __m128i u6 = _mm_unpacklo_epi32(t5, t7); // u6: [42, 52, 62, 72]
-    __m128i u7 = _mm_unpackhi_epi32(t5, t7); // u7: [43, 53, 63, 73]
+//     // Step 2: Continue unpacking into 32-bit segments
+//     __m128i u0 = _mm_unpacklo_epi32(t0, t2); // u0: [00, 10, 20, 30]
+//     __m128i u1 = _mm_unpackhi_epi32(t0, t2); // u1: [01, 11, 21, 31]
+//     __m128i u2 = _mm_unpacklo_epi32(t1, t3); // u2: [02, 12, 22, 32]
+//     __m128i u3 = _mm_unpackhi_epi32(t1, t3); // u3: [03, 13, 23, 33]
+//     __m128i u4 = _mm_unpacklo_epi32(t4, t6); // u4: [40, 50, 60, 70]
+//     __m128i u5 = _mm_unpackhi_epi32(t4, t6); // u5: [41, 51, 61, 71]
+//     __m128i u6 = _mm_unpacklo_epi32(t5, t7); // u6: [42, 52, 62, 72]
+//     __m128i u7 = _mm_unpackhi_epi32(t5, t7); // u7: [43, 53, 63, 73]
 
-    // Step 3: Unpack into 64-bit segments
-    row0 = _mm_unpacklo_epi64(u0, u4); // row[0]: [00, 10, 20, 30, 40, 50, 60, 70]
-    row1 = _mm_unpackhi_epi64(u0, u4); // row[1]: [01, 11, 21, 31, 41, 51, 61, 71]
-    row2 = _mm_unpacklo_epi64(u1, u5); // row[2]: [02, 12, 22, 32, 42, 52, 62, 72]
-    row3 = _mm_unpackhi_epi64(u1, u5); // row[3]: [03, 13, 23, 33, 43, 53, 63, 73]
-    row4 = _mm_unpacklo_epi64(u2, u6); // row[4]: [04, 14, 24, 34, 44, 54, 64, 74]
-    row5 = _mm_unpackhi_epi64(u2, u6); // row[5]: [05, 15, 25, 35, 45, 55, 65, 75]
-    row6 = _mm_unpacklo_epi64(u3, u7); // row[6]: [06, 16, 26, 36, 46, 56, 66, 76]
-    row7 = _mm_unpackhi_epi64(u3, u7); // row[7]: [07, 17, 27, 37, 47, 57, 67, 77]
+//     // Step 3: Unpack into 64-bit segments
+//     row0 = _mm_unpacklo_epi64(u0, u4); // row[0]: [00, 10, 20, 30, 40, 50, 60, 70]
+//     row1 = _mm_unpackhi_epi64(u0, u4); // row[1]: [01, 11, 21, 31, 41, 51, 61, 71]
+//     row2 = _mm_unpacklo_epi64(u1, u5); // row[2]: [02, 12, 22, 32, 42, 52, 62, 72]
+//     row3 = _mm_unpackhi_epi64(u1, u5); // row[3]: [03, 13, 23, 33, 43, 53, 63, 73]
+//     row4 = _mm_unpacklo_epi64(u2, u6); // row[4]: [04, 14, 24, 34, 44, 54, 64, 74]
+//     row5 = _mm_unpackhi_epi64(u2, u6); // row[5]: [05, 15, 25, 35, 45, 55, 65, 75]
+//     row6 = _mm_unpacklo_epi64(u3, u7); // row[6]: [06, 16, 26, 36, 46, 56, 66, 76]
+//     row7 = _mm_unpackhi_epi64(u3, u7); // row[7]: [07, 17, 27, 37, 47, 57, 67, 77]
 
-    /* Even part */
-    tmp10 = _mm_adds_epi16(row0, row4); /* phase 3 */
-    tmp11 = _mm_subs_epi16(row0, row4);
+//     /* Even part */
+//     tmp10 = _mm_adds_epi16(row0, row4); /* phase 3 */
+//     tmp11 = _mm_subs_epi16(row0, row4);
 
-    tmp13 = _mm_adds_epi16(row2, row6); /* phases 5-3 */
-    tmp12 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>(_mm_subs_epi16(row2, row6));
-    tmp12 = _mm_subs_epi16(tmp12,tmp13);
+//     tmp13 = _mm_adds_epi16(row2, row6); /* phases 5-3 */
+//     tmp12 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>(_mm_subs_epi16(row2, row6));
+//     tmp12 = _mm_subs_epi16(tmp12,tmp13);
 
-    tmp0 = _mm_adds_epi16(tmp10, tmp13); /* phase 2 */
-    tmp3 = _mm_subs_epi16(tmp10, tmp13);
-    tmp1 = _mm_adds_epi16(tmp11, tmp12);
-    tmp2 = _mm_subs_epi16(tmp11, tmp12);
+//     tmp0 = _mm_adds_epi16(tmp10, tmp13); /* phase 2 */
+//     tmp3 = _mm_subs_epi16(tmp10, tmp13);
+//     tmp1 = _mm_adds_epi16(tmp11, tmp12);
+//     tmp2 = _mm_subs_epi16(tmp11, tmp12);
 
-    /* Odd part */
+//     /* Odd part */
 
-    z13 = _mm_adds_epi16(row5, row3); /* phase 6 */
-    z10 = _mm_subs_epi16(row5, row3);
-    z11 = _mm_adds_epi16(row1, row7);
-    z12 = _mm_subs_epi16(row1, row7);
+//     z13 = _mm_adds_epi16(row5, row3); /* phase 6 */
+//     z10 = _mm_subs_epi16(row5, row3);
+//     z11 = _mm_adds_epi16(row1, row7);
+//     z12 = _mm_subs_epi16(row1, row7);
 
-    tmp7 = _mm_adds_epi16(z11, z13);  /* phase 5 */
+//     tmp7 = _mm_adds_epi16(z11, z13);  /* phase 5 */
 
-    tmp11 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>( _mm_subs_epi16(z11,z13) );
+//     tmp11 = _mm_mul_epi16_const<1,int(0.414213562*0x8000)>( _mm_subs_epi16(z11,z13) );
 
-    z5 = _mm_mul_epi16_const<1,int(0.847759065*0x8000)>( _mm_adds_epi16(z10,z12) );
+//     z5 = _mm_mul_epi16_const<1,int(0.847759065*0x8000)>( _mm_adds_epi16(z10,z12) );
 
-    tmp10 = _mm_subs_epi16(z5, _mm_mul_epi16_const<1,int(0.082392200*0x8000)>(z12) );
-    tmp12 = _mm_subs_epi16(z5, _mm_mul_epi16_const<2,int(0.613125930*0x8000)>(z10) );
+//     tmp10 = _mm_subs_epi16(z5, _mm_mul_epi16_const<1,int(0.082392200*0x8000)>(z12) );
+//     tmp12 = _mm_subs_epi16(z5, _mm_mul_epi16_const<2,int(0.613125930*0x8000)>(z10) );
 
-    tmp6 = _mm_subs_epi16(tmp12, tmp7); /* phase 2 */
-    tmp5 = _mm_subs_epi16(tmp11, tmp6);
-    tmp4 = _mm_subs_epi16(tmp10, tmp5);
+//     tmp6 = _mm_subs_epi16(tmp12, tmp7); /* phase 2 */
+//     tmp5 = _mm_subs_epi16(tmp11, tmp6);
+//     tmp4 = _mm_subs_epi16(tmp10, tmp5);
 
-    row0 = _mm_adds_epi16(tmp0,tmp7);
-    row1 = _mm_adds_epi16(tmp1,tmp6);
-    row2 = _mm_adds_epi16(tmp2,tmp5);
-    row3 = _mm_adds_epi16(tmp3,tmp4);
-    row4 = _mm_subs_epi16(tmp3,tmp4);
-    row5 = _mm_subs_epi16(tmp2,tmp5);
-    row6 = _mm_subs_epi16(tmp1,tmp6);
-    row7 = _mm_subs_epi16(tmp0,tmp7);
+//     row0 = _mm_adds_epi16(tmp0,tmp7);
+//     row1 = _mm_adds_epi16(tmp1,tmp6);
+//     row2 = _mm_adds_epi16(tmp2,tmp5);
+//     row3 = _mm_adds_epi16(tmp3,tmp4);
+//     row4 = _mm_subs_epi16(tmp3,tmp4);
+//     row5 = _mm_subs_epi16(tmp2,tmp5);
+//     row6 = _mm_subs_epi16(tmp1,tmp6);
+//     row7 = _mm_subs_epi16(tmp0,tmp7);
 
-    row0 = _mm_srai_epi16( row0, fix_pass);
-    row1 = _mm_srai_epi16( row1, fix_pass);
-    row2 = _mm_srai_epi16( row2, fix_pass);
-    row3 = _mm_srai_epi16( row3, fix_pass);
-    row4 = _mm_srai_epi16( row4, fix_pass);
-    row5 = _mm_srai_epi16( row5, fix_pass);
-    row6 = _mm_srai_epi16( row6, fix_pass);
-    row7 = _mm_srai_epi16( row7, fix_pass);
-    row0 = _mm_packs_epi16( row0, row1 );
-    row1 = _mm_set1_epi8(-128);
-    row2 = _mm_packs_epi16( row2, row3 );
-    row4 = _mm_packs_epi16( row4, row5 );
-    row6 = _mm_packs_epi16( row6, row7 );
-    row0 = _mm_xor_si128( row0, row1);
-    row2 = _mm_xor_si128( row2, row1);
-    row4 = _mm_xor_si128( row4, row1);
-    row6 = _mm_xor_si128( row6, row1);
+//     row0 = _mm_srai_epi16( row0, fix_pass);
+//     row1 = _mm_srai_epi16( row1, fix_pass);
+//     row2 = _mm_srai_epi16( row2, fix_pass);
+//     row3 = _mm_srai_epi16( row3, fix_pass);
+//     row4 = _mm_srai_epi16( row4, fix_pass);
+//     row5 = _mm_srai_epi16( row5, fix_pass);
+//     row6 = _mm_srai_epi16( row6, fix_pass);
+//     row7 = _mm_srai_epi16( row7, fix_pass);
+//     row0 = _mm_packs_epi16( row0, row1 );
+//     row1 = _mm_set1_epi8(-128);
+//     row2 = _mm_packs_epi16( row2, row3 );
+//     row4 = _mm_packs_epi16( row4, row5 );
+//     row6 = _mm_packs_epi16( row6, row7 );
+//     row0 = _mm_xor_si128( row0, row1);
+//     row2 = _mm_xor_si128( row2, row1);
+//     row4 = _mm_xor_si128( row4, row1);
+//     row6 = _mm_xor_si128( row6, row1);
 
-    *((long long *)out) =  _mm_extract_epi64(row0, 0); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row0, 1); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row2, 0); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row2, 1); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row4, 0); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row4, 1); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row6, 0); out += stride;
-    *((long long *)out) =  _mm_extract_epi64(row6, 1); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row0, 0); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row0, 1); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row2, 0); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row2, 1); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row4, 0); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row4, 1); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row6, 0); out += stride;
+//     *((long long *)out) =  _mm_extract_epi64(row6, 1); out += stride;
 
-}
+// }
 
 
     struct BitstreamContext
@@ -566,7 +566,7 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
 
             if (coef)
             {
-                idct8x8(block,out,stride);
+                idct8x8_epi16(block,out,stride);
 
             }
             else
