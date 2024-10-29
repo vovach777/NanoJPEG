@@ -2,22 +2,25 @@
     %define ARG1 rcx
     %define ARG2 rdx
     %define ARG3 r8
+    %define ARG3D r8d
     %define ARG4 r9
 %else
     %define ARG1 rdi
     %define ARG2 rsi
     %define ARG3 rdx
+    %define ARG3D edx
     %define ARG4 rcx
     %define ARG5 r8
     %define ARG6 r9
 %endif
-default rel
 section .text
 bits 64
 global idct8x8_epi16
+default rel
 ;SSSE3 + SSE4.1
 ;idct8x8_epi16(short const* block_aligned16_transposed_shifted_left_by_4_AAN, unsigned char* out, int stride):
 idct8x8_epi16:
+
         movdqa  xmm0, [ARG1 + 64]
         movdqa  xmm1, [ARG1 + 96]
         movdqa  xmm5, [ARG1]
@@ -190,25 +193,34 @@ idct8x8_epi16:
         psraw   xmm5, 4
         psraw   xmm8, 4
         packsswb        xmm5, xmm8
-        movdqa  xmm0, [LCPI0_4]
+        movdqa  xmm0, [LCPI0_4] ;xor
+        mov     eax, ARG3D
+        movsxd  rax, eax
+
         pxor    xmm3, xmm0
         movq    [ARG2], xmm3
-        add     ARG2,ARG3
+        add     ARG2,rax
+
         pextrq  [ARG2], xmm3, 1
-        add     ARG2,ARG3
+        add     ARG2,rax
+
         pxor    xmm2, xmm0
         movq    [ARG2], xmm2
-        add     ARG2,ARG3
+        add     ARG2,rax
+
         pextrq  [ARG2], xmm2, 1
-        add     ARG2,ARG3
+        add     ARG2,rax
+
         pxor    xmm4, xmm0
         movq    [ARG2], xmm4
-        add     ARG2, ARG3
+        add     ARG2, rax
+
         pextrq  [ARG2], xmm4, 1
-        add     ARG2, ARG3
+        add     ARG2, rax
+
         pxor    xmm5, xmm0
         movq    [ARG2], xmm5
-        add     ARG2, ARG3
+        add     ARG2, rax
         pextrq  [ARG2], xmm5, 1
         ret
 
