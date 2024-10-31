@@ -1,4 +1,4 @@
-// NanoJPEG++ (version 4.0) -- vovach777's JPEG Decoder based on NanoJPEG
+// NanoJPEG++ (version 4.1) -- vovach777's JPEG Decoder based on NanoJPEG
 // NanoJPEG -- KeyJ's Tiny Baseline JPEG Decoder
 // version 1.3.5 (2016-11-14)
 // Copyright (c) 2009-2016 Martin J. Fiedler <martin.fiedler@gmx.net>
@@ -524,7 +524,7 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
 
     };
 
-        inline void njDecodeBlock(profiling::StopWatch &profile, BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
+        inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
         const int *qtab,
         uint8_t * out, int stride)
         {
@@ -566,7 +566,7 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
 
             if (coef)
             {
-                idct8x8(block,out,stride);
+                idct8x8(block,out,stride); //expects transponsed block!
 
             }
             else
@@ -743,9 +743,9 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
             }
             if (length < (ncomp * 3))
                 njThrow(NJ_SYNTAX_ERROR);
-            allocations_penalty.start();
+            //allocations_penalty.start();
             comp.resize(ncomp);
-            allocations_penalty.stop();
+            //allocations_penalty.stop();
             for (auto &c : comp)
             {
                 c.cid = pos[0];
@@ -811,10 +811,10 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
         inline void DecodeDHT(void)
         {
             DecodeLength();
-            allocations_penalty.start();
+            //allocations_penalty.start();
             huff_DC.resize(2);
             huff_AC.resize(2);
-            allocations_penalty.stop();
+            //allocations_penalty.stop();
             while (length >= 17)
             {
                 int i = pos[0];
@@ -862,9 +862,9 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
                  118, 91, 49, 46, 81, 101, 101, 81,
                  46, 42, 69, 79, 69, 42, 35, 54,
                  54, 35, 28, 37, 28, 19, 19, 10};
-            allocations_penalty.start();
+            //allocations_penalty.start();
             qtab.resize(4);
-            allocations_penalty.stop();
+            //allocations_penalty.stop();
             while (length >= 65)
             {
                 int i = pos[0];
@@ -927,7 +927,7 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
                         for (int sby = 0; sby < c.ssy; ++sby)
                             for (int sbx = 0; sbx < c.ssx; ++sbx)
                             {
-                                njDecodeBlock(allocations_penalty, bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
+                                njDecodeBlock(bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
                                 if (nj_error != NJ_OK)
                                     return;
                             }

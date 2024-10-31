@@ -3,17 +3,20 @@
 #include <cstdint>
 #include <algorithm>
 #include <tuple>
-constexpr inline uint8_t converter_u8(float v) {
-    return std::clamp<int>( v+0.5f, 0,255);
+constexpr inline uint8_t converter_u8(int v) {
+    return v < 0 ? 0 : (v > 0xff ? 0xff : v );
 }
 constexpr inline auto YCbCr_to_RGB(int y, int cb, int cr)
 {
-    const float cr_ = cr - 128;
-    const float cb_ = cb - 128;
+    cr -= 128;
+    cb -= 128;
+    y  <<= 16;
     return std::make_tuple(
-            converter_u8(y + cr_ * 1.40200f),
-            converter_u8(y + cr_ * -0.71414f + cb_ * -0.34414f),
-            converter_u8(y + cb_ * 1.77200f) );
+            converter_u8( (y + cr * int(1.402    * 0x10000) ) / 0x10000 ),
+            converter_u8( (y + cr * int(-0.71414 * 0x10000)
+                             + cb * int(-0.34414 * 0x10000) ) / 0x10000 ),
+            converter_u8( (y + cb * int(1.772    * 0x10000) ) / 0x10000 )
+        );
 }
 
 template <bool is_ycck, int planes_nb, typename YUV_, typename RGB_>
