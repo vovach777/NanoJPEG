@@ -97,7 +97,7 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         #endif
     }
 
-    constexpr int fix_pass = 4;
+    constexpr int fix_pass = 5;
     constexpr int fix_qtab = (10-fix_pass);
 
     constexpr inline uint8_t njClip(int x)
@@ -110,25 +110,9 @@ inline thread_local nj_result_t nj_error{NJ_OK};
         return (pos[0] << 8) | pos[1];
     }
 
-template <unsigned i=0, int fract>
-inline __m128i _mm_mul_epi16_const(__m128i t0) {
-    __m128i t1 = _mm_mulhrs_epi16(t0, _mm_set1_epi16(fract));
-    if constexpr (i != 0) {
-
-        if constexpr (i == 2) {
-            t0 = _mm_adds_epi16( t0, t0 );
-        }
-        if constexpr (  fract < 0) {
-            t1 = _mm_subs_epi16( t1, t0 );
-
-        } else {
-            t1 = _mm_adds_epi16( t1, t0 );
-        }
-    }
-    return t1;
-}
 
 extern "C" void idct8x8_epi16(const int16_t *v, uint8_t * out, int stride);
+extern "C" void clear8x8_epi16(int16_t *v); //clear manualy to prevent clang++ bug
 // {
 //     __m128i row0,row1,row2,row3,row4,row5,row6,row7;
 //     __m128i tmp0,tmp1,tmp2,tmp3,tmp4,tmp5,tmp6,tmp7;
@@ -524,11 +508,11 @@ extern "C" void idct8x8_epi16(const int16_t *v, uint8_t * out, int stride);
 
     };
 
-        inline void njDecodeBlock(profiling::StopWatch &profile, BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
+        inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
         const int *qtab,
         uint8_t * out, int stride)
         {
-            alignas(16) int16_t block[64]{};
+            alignas(16) int16_t block[64];
             // DC coef
             dcpred += std::get<0>( dc.njGetVLC(bs) );
             //transponsed!!!
@@ -541,10 +525,9 @@ extern "C" void idct8x8_epi16(const int16_t *v, uint8_t * out, int stride);
             43, 50, 57, 58, 51, 44, 37, 30,
             23, 31, 38, 45, 52, 59, 60, 53,
             46, 39, 47, 54, 61, 62, 55, 63};
-
+            clear8x8_epi16(block);
             block[0] = std::clamp( ((dcpred)*qtab[0]) >> fix_qtab, -32768,32767); // DC component scaling and quantization
             int coef{0};
-
             do
             {
                 auto [value, code] = ac.njGetVLC(bs);
@@ -927,7 +910,7 @@ extern "C" void idct8x8_epi16(const int16_t *v, uint8_t * out, int stride);
                         for (int sby = 0; sby < c.ssy; ++sby)
                             for (int sbx = 0; sbx < c.ssx; ++sbx)
                             {
-                                njDecodeBlock(allocations_penalty, bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
+                                njDecodeBlock(bitstream, c.dcpred, huff_DC[c.dctabsel],huff_AC[c.actabsel],qtab[c.qtsel].data(), c.pixels.data() + (((mby * c.ssy + sby) * c.stride + mbx * c.ssx + sbx) << 3),c.stride);
                                 if (nj_error != NJ_OK)
                                     return;
                             }

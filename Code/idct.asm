@@ -13,9 +13,11 @@
     %define ARG5 r8
     %define ARG6 r9
 %endif
+%define PRE_SHIFT 5
 section .text
+align 32
 bits 64
-global idct8x8_epi16
+global idct8x8_epi16, clear8x8_epi16
 default rel
 ;SSSE3 + SSE4.1
 ;idct8x8_epi16(short const* block_aligned16_transposed_shifted_left_by_4_AAN, unsigned char* out, int stride):
@@ -181,17 +183,17 @@ idct8x8_epi16:
         psubsw  xmm6, xmm0
         psubsw  xmm5, xmm1
         psubsw  xmm8, xmm7
-        psraw   xmm3, 4
-        psraw   xmm9, 4
+        psraw   xmm3, PRE_SHIFT
+        psraw   xmm9, PRE_SHIFT
         packsswb        xmm3, xmm9
-        psraw   xmm2, 4
-        psraw   xmm11, 4
+        psraw   xmm2, PRE_SHIFT
+        psraw   xmm11, PRE_SHIFT
         packsswb        xmm2, xmm11
-        psraw   xmm4, 4
-        psraw   xmm6, 4
+        psraw   xmm4, PRE_SHIFT
+        psraw   xmm6, PRE_SHIFT
         packsswb        xmm4, xmm6
-        psraw   xmm5, 4
-        psraw   xmm8, 4
+        psraw   xmm5, PRE_SHIFT
+        psraw   xmm8, PRE_SHIFT
         packsswb        xmm5, xmm8
         movdqa  xmm0, [LCPI0_4] ;xor
         mov     eax, ARG3D
@@ -224,7 +226,22 @@ idct8x8_epi16:
         pextrq  [ARG2], xmm5, 1
         ret
 
+;clear8x8_epi16(short const* block_aligned16_transposed_shifted_left_by_4_AAN):
+clear8x8_epi16:
+        pxor    xmm0,xmm0
+        movdqa  [ARG1], xmm0
+        movdqa  [ARG1+16], xmm0
+        movdqa  [ARG1+32], xmm0
+        movdqa  [ARG1+48], xmm0
+        movdqa  [ARG1+64], xmm0
+        movdqa  [ARG1+80], xmm0
+        movdqa  [ARG1+96], xmm0
+        movdqa  [ARG1+112], xmm0
+        ret
+
+
 section .data
+align 16
     LCPI0_0:
         dw  13572, 13572, 13572, 13572, 13572, 13572, 13572, 13572
     LCPI0_1:
