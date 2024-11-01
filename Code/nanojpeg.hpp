@@ -524,62 +524,62 @@ static void idct8x8(const int16_t *v, uint8_t * out, int stride)
 
     };
 
-        inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
-        const int *qtab,
-        uint8_t * out, int stride)
+    inline void njDecodeBlock(BitstreamContext &bs, int &dcpred, const  HuffCodeDC&dc, const  HuffCodeAC&ac,
+    const int *qtab,
+    uint8_t * out, int stride)
+    {
+        alignas(16) int16_t block[64]{};
+        // DC coef
+        dcpred += std::get<0>( dc.njGetVLC(bs) );
+        //transponsed!!!
+        static const uint8_t ZZ[64] =
+        {0,  8,  1,  2,  9, 16, 24, 17,
+        10,  3,  4, 11, 18, 25, 32, 40,
+        33, 26, 19, 12,  5,  6, 13, 20,
+        27, 34, 41, 48, 56, 49, 42, 35,
+        28, 21, 14,  7, 15, 22, 29, 36,
+        43, 50, 57, 58, 51, 44, 37, 30,
+        23, 31, 38, 45, 52, 59, 60, 53,
+        46, 39, 47, 54, 61, 62, 55, 63};
+
+        block[0] = std::clamp( ((dcpred)*qtab[0]) >> fix_qtab, -32768,32767); // DC component scaling and quantization
+        int coef{0};
+
+        do
         {
-            alignas(16) int16_t block[64]{};
-            // DC coef
-            dcpred += std::get<0>( dc.njGetVLC(bs) );
-            //transponsed!!!
-            static const uint8_t ZZ[64] =
-            {0,  8,  1,  2,  9, 16, 24, 17,
-            10,  3,  4, 11, 18, 25, 32, 40,
-            33, 26, 19, 12,  5,  6, 13, 20,
-            27, 34, 41, 48, 56, 49, 42, 35,
-            28, 21, 14,  7, 15, 22, 29, 36,
-            43, 50, 57, 58, 51, 44, 37, 30,
-            23, 31, 38, 45, 52, 59, 60, 53,
-            46, 39, 47, 54, 61, 62, 55, 63};
-
-            block[0] = std::clamp( ((dcpred)*qtab[0]) >> fix_qtab, -32768,32767); // DC component scaling and quantization
-            int coef{0};
-
-            do
-            {
-                auto [value, code] = ac.njGetVLC(bs);
-                if (!code)
-                    break; // EOB
-                if (!(code & 0x0F) && (code != 0xF0))
-                     njThrow(NJ_SYNTAX_ERROR);
-                coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
-                if (coef > 63)
-                {
+            auto [value, code] = ac.njGetVLC(bs);
+            if (!code)
+                break; // EOB
+            if (!(code & 0x0F) && (code != 0xF0))
                     njThrow(NJ_SYNTAX_ERROR);
-                }
-                block[ZZ[coef]] = std::clamp( (value * qtab[coef]) >> fix_qtab, -32768, 32767 );
-
-            } while (coef < 63);
-
-            if (nj_error != NJ_OK)
-                return;
-
-            if (coef)
+            coef += (code >> 4) + 1; // RLE jumps (block fills zeros)
+            if (coef > 63)
             {
-                idct8x8(block,out,stride); //expects transponsed block!
-
+                njThrow(NJ_SYNTAX_ERROR);
             }
-            else
-            { // only DC component
+            block[ZZ[coef]] = std::clamp( (value * qtab[coef]) >> fix_qtab, -32768, 32767 );
 
-                uint8_t value =  (std::clamp(block[0] >> fix_pass,-128, 127) ^ 0x80) & 0xff;
-                for (int i = 0; i < 8; ++i)
-                {
-                    std::fill(out, out + 8, value);
-                    out += stride; // next line
-                }
+        } while (coef < 63);
+
+        if (nj_error != NJ_OK)
+            return;
+
+        if (coef)
+        {
+            idct8x8(block,out,stride); //expects transponsed block!
+
+        }
+        else
+        { // only DC component
+
+            uint8_t value =  (std::clamp(block[0] >> fix_pass,-128, 127) ^ 0x80) & 0xff;
+            for (int i = 0; i < 8; ++i)
+            {
+                std::fill(out, out + 8, value);
+                out += stride; // next line
             }
         }
+    }
 
     struct nj_context_t
     {

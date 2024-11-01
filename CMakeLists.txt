@@ -25,9 +25,9 @@ endif()
 if(COMPILER_INFO MATCHES "MSVC")
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|IntelLLVM")
         add_compile_options( -mssse3 -msse4.1)
-        if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
-        add_compile_options( $<$<CONFIG:Release>:/fast> )
-        endif()
+        # if(CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+        # add_compile_options( $<$<CONFIG:Release>:/fast> )
+        # endif()
     endif()
 
 endif()
@@ -44,16 +44,15 @@ target_link_libraries(nanojpeg PRIVATE mio::mio)
 # string(REPLACE "-mavx" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 # string(REPLACE "-msse4.1" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 # string(REPLACE "-march=native" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-
-message(STATUS "${CMAKE_CXX_COMPILER_ID} (${CMAKE_CXX_SIMULATE_ID})")
-message(STATUS "c++ opt_${CONFIG}:  [${CMAKE_CXX_FLAGS}] [${CMAKE_CXX_FLAGS_${CONFIG}}]")
-message(STATUS "link opt_${CONFIG}:  [${CMAKE_EXE_LINKER_FLAGS_RELEASE}]")
-
-
-string(APPEND  CMAKE_EXE_LINKER_FLAGS_RELEASE "-v")
+#string(APPEND  CMAKE_EXE_LINKER_FLAGS_RELEASE "-v")
 
 find_package(benchmark CONFIG REQUIRED)
 add_executable(bench benchmark/app.cpp)
 target_link_libraries(bench PRIVATE benchmark::benchmark benchmark::benchmark_main)
 
 target_compile_options(bench PRIVATE -mavx)
+
+
+message(STATUS "${CMAKE_CXX_COMPILER_ID} (${CMAKE_CXX_SIMULATE_ID})")
+message(STATUS "c++ opt_${CONFIG}:  [${CMAKE_CXX_FLAGS}] [${CMAKE_CXX_FLAGS_${CONFIG}}]")
+message(STATUS "link opt_${CONFIG}:  [${CMAKE_EXE_LINKER_FLAGS_RELEASE}]")
