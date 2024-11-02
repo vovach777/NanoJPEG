@@ -5,48 +5,11 @@
 #include <stdexcept>
 #include <mio/mmap.hpp>
 #include <algorithm>
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
-#include <turbojpeg.h>
 #include "profiling.hpp"
 #include "converter.hpp"
 #include "nanojpeg.hpp"
 
 using profiling::StopWatch;
-
-static auto jpeg_turbo_bench(StopWatch &bench, const uint8_t *buf, size_t size, bool fastDCT)
-{
-
-    nanojpeg::nj_context_t njheader{};
-    njheader.pos = buf;
-    njheader.size = size;
-    njheader.DecodeSOF<true, false>();
-    if (njheader.ncomp != 3)
-        throw std::runtime_error("jpeg turbo can only decode direct YUV8 places");
-
-
-    struct H
-    {
-        tjhandle handle{};
-        H(tjhandle h) : handle(h) {}
-        ~H() { tj3Destroy(handle); }
-    } tj3handleRAII(tj3Init(TJINIT_DECOMPRESS));
-
-    // tj3DecompressHeader(tj3handleRAII.handle, buf, size); //without this call we can not retrive the buffer size
-    njheader.allocate_pixels();
-
-    uint8_t *yuv_planes[3] = {njheader.comp[0].pixels.data(), njheader.comp[1].pixels.data(), njheader.comp[2].pixels.data()};
-    int strides[3] = {njheader.comp[0].stride, njheader.comp[1].stride, njheader.comp[2].stride};
-
-    if (fastDCT)
-        tj3Set(tj3handleRAII.handle, TJPARAM_FASTDCT, 1);
-    bench.start();
-    if (tj3DecompressToYUVPlanes8(tj3handleRAII.handle, buf, size, (uint8_t **)yuv_planes, (int *)strides) != 0)
-        throw std::runtime_error("tjDecompressToYUVPlanes failed:" + std::string(tjGetErrorStr2(tj3handleRAII.handle)));
-    bench.stop();
-
-    return njheader.comp;
-}
 
 auto nanojpeg_bench(StopWatch &bench, const uint8_t *buf, size_t size)
 {
@@ -102,7 +65,7 @@ int main(int argc, char **argv)
             throw std::runtime_error(error.message());
         }
         std::vector<uint8_t> jpeg_vector(mmap.begin(),mmap.end());
-        StopWatch njtime{}, tjtime{}, tjtime_fast{}, convert_time{};
+        StopWatch njtime{};
         auto file_extenstion = ext(argv[1]);
         bool is_motion = file_extenstion == "mjpeg" ||  file_extenstion == "mjpg";
         if ( is_motion ) {
@@ -164,34 +127,16 @@ int main(int argc, char **argv)
         } else {
             std::cout << "* YUV" << image.yuv_format << std::endl;
             std::cout << "* " << image.width << "x" << image.height << std::endl;
+            std::cout << "* " << std::fixed << std::setprecision(1) << (image.width*image.height*image.planes.size() / double(image.size)) << ":1" << std::endl;
         }
 
         int times = std::clamp(1024 * 1024 * 256.0 / image.size / 3,1.,10000.);
-        std::cout << "Benchmarking repeats " << times << " times. Every dot is 100 frames." << std::endl;
-
-        bool turbo_ok = true;
-        try
-        {
-            StopWatch dummy{};
-            jpeg_turbo_bench(dummy, jpeg_vector.data(), jpeg_vector.size(), true);
-        }
-        catch (const std::exception &e)
-        {
-            std::cout << std::endl
-                      << "turbojpeg failed: " << e.what() << std::endl;
-            turbo_ok = false;
-        }
 
         for (int i = 0; i < times; i++)
         {
 
             (void)nanojpeg_bench(njtime, jpeg_vector.data(), jpeg_vector.size());
 
-            if (turbo_ok)
-            {
-                (void)jpeg_turbo_bench(tjtime, jpeg_vector.data(), jpeg_vector.size(), false);
-                (void)jpeg_turbo_bench(tjtime_fast, jpeg_vector.data(), jpeg_vector.size(), true);
-            }
             if (i % 100 == 0)
                 std::cout << "." << std::flush;
         }
@@ -201,34 +146,36 @@ int main(int argc, char **argv)
         auto imgMPixSize = image.width * image.height * 1e-6;
 
         std::cout << "image  = " << image.width << "x" << image.height << " (" << std::fixed << std::setprecision(1) << imgMPixSize << " MPix)" << std::endl;
-        if (turbo_ok)
-        {
-            print_stat("jpeg-turbo", tjtime.elapsed(), imgMPixSize, image.size * times, times);
-            print_stat("jpeg-turbo (fast IDCT)", tjtime_fast.elapsed(), imgMPixSize, image.size * times, times);
-            std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / tjtime_fast.elapsed()) << "x" << std::endl;
-
-        }
         print_stat("nanojpeg", njtime.elapsed(), imgMPixSize, image.size * times, times);
-        if (turbo_ok)
-            std::cout << "ratio = " << std::fixed << std::setprecision(2) << (tjtime.elapsed() / njtime.elapsed()) << "x" << std::endl;
 
-        auto out_filename = std::string(argv[1]) + ".bmp";
+        if ( image.planes.size() == 3 && !image.is_ycck)
+        {
+            auto out_filename = std::string(argv[1]) + ".ppm";
+            std::cout << "Creating " << out_filename << std::flush;
 
-        std::cout << std::endl << "YUV -> RGB..." << std::flush;
-        int comp_nb = std::min<int>(3, image.planes.size());
-        std::vector<uint8_t> rgb(image.width * image.height * comp_nb);
-        convert_time.start();
-        auto rgb_out = rgb.data();
-        convert(image.width, image.height, image.planes.size(), image.is_ycck,  [&comp = image.planes](int comp_n, int x, int y)
-                {   x >>= comp[comp_n].chroma_w_log2;
-                    y >>= comp[comp_n].chroma_h_log2;
-                    return (int)comp[comp_n].pixels[ y * comp[comp_n].stride + x]; }, [&rgb_out](int x, int y, auto &&...args)
-                { ((*rgb_out++ = args), ...); });
-        convert_time.stop();
-        std::cout << std::endl << "time = " << convert_time.elapsed_str() << std::endl;
-        std::cout << "Creating " << out_filename << std::flush;
-        stbi_write_bmp(out_filename.c_str(), image.width, image.height, comp_nb, rgb.data());
-        std::cout << std::endl;
+            std::ofstream ppm;
+            ppm.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+            ppm.open(out_filename,  std::ios::binary | std::ios::out);
+
+            std::cout << std::endl << "YUV -> RGB" << std::flush;
+            int comp_nb = std::min<int>(3, image.planes.size());
+            ppm << "P3\n";
+            ppm << image.width << " " << image.height << "\n";
+            ppm << "255\n";
+
+            convert<false,3>([&comp = image.planes](int comp_n, int x, int y)
+                    {   x >>= comp[comp_n].chroma_w_log2;
+                        y >>= comp[comp_n].chroma_h_log2;
+                        return (int)comp[comp_n].pixels[ y * comp[comp_n].stride + x]; },
+
+                    [&ppm](int x, int y, int r, int g, int b)
+                    {
+                        ppm << r << " " << g << " " << b << "\n";
+                        if (y % 256==0 && x==0)
+                            std::cout << ".";
+                    },image.width, image.height);
+            std::cout << std::endl;
+        }
     }
     catch (const std::exception &e)
     {
